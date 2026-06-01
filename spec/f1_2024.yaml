@@ -1,0 +1,579 @@
+version:
+  format: 2024
+  year: 24
+  module: v2024
+
+structs:
+  - name: CarMotionData
+    fields:
+      - { name: world_position_x, ty: f32 }
+      - { name: world_position_y, ty: f32 }
+      - { name: world_position_z, ty: f32 }
+      - { name: world_velocity_x, ty: f32 }
+      - { name: world_velocity_y, ty: f32 }
+      - { name: world_velocity_z, ty: f32 }
+      - { name: world_forward_dir_x, ty: i16 }
+      - { name: world_forward_dir_y, ty: i16 }
+      - { name: world_forward_dir_z, ty: i16 }
+      - { name: world_right_dir_x, ty: i16 }
+      - { name: world_right_dir_y, ty: i16 }
+      - { name: world_right_dir_z, ty: i16 }
+      - { name: g_force_lateral, ty: f32 }
+      - { name: g_force_longitudinal, ty: f32 }
+      - { name: g_force_vertical, ty: f32 }
+      - { name: yaw, ty: f32 }
+      - { name: pitch, ty: f32 }
+      - { name: roll, ty: f32 }
+
+  - name: MarshalZone
+    fields:
+      - { name: zone_start, ty: f32 }
+      - { name: zone_flag, ty: i8 }
+
+  - name: WeatherForecastSample
+    fields:
+      - { name: session_type, ty: u8 }
+      - { name: time_offset, ty: u8 }
+      - { name: weather, ty: u8 }
+      - { name: track_temperature, ty: i8 }
+      - { name: track_temperature_change, ty: i8 }
+      - { name: air_temperature, ty: i8 }
+      - { name: air_temperature_change, ty: i8 }
+      - { name: rain_percentage, ty: u8 }
+
+  # F1 24 LapData: delta fields now have minute parts, speed trap added
+  - name: LapData
+    fields:
+      - { name: last_lap_time_in_ms, ty: u32 }
+      - { name: current_lap_time_in_ms, ty: u32 }
+      - { name: sector1_time_ms_part, ty: u16 }
+      - { name: sector1_time_minutes_part, ty: u8 }
+      - { name: sector2_time_ms_part, ty: u16 }
+      - { name: sector2_time_minutes_part, ty: u8 }
+      - { name: delta_to_car_in_front_ms_part, ty: u16 }
+      - { name: delta_to_car_in_front_minutes_part, ty: u8 }
+      - { name: delta_to_race_leader_ms_part, ty: u16 }
+      - { name: delta_to_race_leader_minutes_part, ty: u8 }
+      - { name: lap_distance, ty: f32 }
+      - { name: total_distance, ty: f32 }
+      - { name: safety_car_delta, ty: f32 }
+      - { name: car_position, ty: u8 }
+      - { name: current_lap_num, ty: u8 }
+      - { name: pit_status, ty: u8 }
+      - { name: num_pit_stops, ty: u8 }
+      - { name: sector, ty: u8 }
+      - { name: current_lap_invalid, ty: u8 }
+      - { name: penalties, ty: u8 }
+      - { name: total_warnings, ty: u8 }
+      - { name: corner_cutting_warnings, ty: u8 }
+      - { name: num_unserved_drive_through_pens, ty: u8 }
+      - { name: num_unserved_stop_go_pens, ty: u8 }
+      - { name: grid_position, ty: u8 }
+      - { name: driver_status, ty: u8 }
+      - { name: result_status, ty: u8 }
+      - { name: pit_lane_timer_active, ty: u8 }
+      - { name: pit_lane_time_in_lane_in_ms, ty: u16 }
+      - { name: pit_stop_timer_in_ms, ty: u16 }
+      - { name: pit_stop_should_serve_pen, ty: u8 }
+      - { name: speed_trap_fastest_speed, ty: f32 }
+      - { name: speed_trap_fastest_lap, ty: u8 }
+
+  # F1 24 Participants: adds techLevel (u16) and reorders platform
+  - name: ParticipantData
+    fields:
+      - { name: ai_controlled, ty: u8 }
+      - { name: driver_id, ty: u8 }
+      - { name: network_id, ty: u8 }
+      - { name: team_id, ty: u8 }
+      - { name: my_team, ty: u8 }
+      - { name: race_number, ty: u8 }
+      - { name: nationality, ty: u8 }
+      - { name: name, ty: "string(48)" }
+      - { name: your_telemetry, ty: u8 }
+      - { name: show_online_names, ty: u8 }
+      - { name: tech_level, ty: u16 }
+      - { name: platform, ty: u8 }
+
+  # F1 24 CarSetups: adds engine_braking and nextFrontWingValue at packet level
+  - name: CarSetupData
+    fields:
+      - { name: front_wing, ty: u8 }
+      - { name: rear_wing, ty: u8 }
+      - { name: on_throttle, ty: u8 }
+      - { name: off_throttle, ty: u8 }
+      - { name: front_camber, ty: f32 }
+      - { name: rear_camber, ty: f32 }
+      - { name: front_toe, ty: f32 }
+      - { name: rear_toe, ty: f32 }
+      - { name: front_suspension, ty: u8 }
+      - { name: rear_suspension, ty: u8 }
+      - { name: front_anti_roll_bar, ty: u8 }
+      - { name: rear_anti_roll_bar, ty: u8 }
+      - { name: front_suspension_height, ty: u8 }
+      - { name: rear_suspension_height, ty: u8 }
+      - { name: brake_pressure, ty: u8 }
+      - { name: brake_bias, ty: u8 }
+      - { name: engine_braking, ty: u8 }
+      - { name: rear_left_tyre_pressure, ty: f32 }
+      - { name: rear_right_tyre_pressure, ty: f32 }
+      - { name: front_left_tyre_pressure, ty: f32 }
+      - { name: front_right_tyre_pressure, ty: f32 }
+      - { name: ballast, ty: u8 }
+      - { name: fuel_load, ty: f32 }
+
+  - name: CarTelemetryData
+    fields:
+      - { name: speed, ty: u16 }
+      - { name: throttle, ty: f32 }
+      - { name: steer, ty: f32 }
+      - { name: brake, ty: f32 }
+      - { name: clutch, ty: u8 }
+      - { name: gear, ty: i8 }
+      - { name: engine_rpm, ty: u16 }
+      - { name: drs, ty: u8 }
+      - { name: rev_lights_percent, ty: u8 }
+      - { name: rev_lights_bit_value, ty: u16 }
+      - { name: brakes_temperature, ty: "[u16; 4]" }
+      - { name: tyres_surface_temperature, ty: "[u8; 4]" }
+      - { name: tyres_inner_temperature, ty: "[u8; 4]" }
+      - { name: engine_temperature, ty: u16 }
+      - { name: tyres_pressure, ty: "[f32; 4]" }
+      - { name: surface_type, ty: "[u8; 4]" }
+
+  - name: CarStatusData
+    fields:
+      - { name: traction_control, ty: u8 }
+      - { name: anti_lock_brakes, ty: u8 }
+      - { name: fuel_mix, ty: u8 }
+      - { name: front_brake_bias, ty: u8 }
+      - { name: pit_limiter_status, ty: u8 }
+      - { name: fuel_in_tank, ty: f32 }
+      - { name: fuel_capacity, ty: f32 }
+      - { name: fuel_remaining_laps, ty: f32 }
+      - { name: max_rpm, ty: u16 }
+      - { name: idle_rpm, ty: u16 }
+      - { name: max_gears, ty: u8 }
+      - { name: drs_allowed, ty: u8 }
+      - { name: drs_activation_distance, ty: u16 }
+      - { name: actual_tyre_compound, ty: u8 }
+      - { name: visual_tyre_compound, ty: u8 }
+      - { name: tyres_age_laps, ty: u8 }
+      - { name: vehicle_fia_flags, ty: i8 }
+      - { name: engine_power_ice, ty: f32 }
+      - { name: engine_power_mguk, ty: f32 }
+      - { name: ers_store_energy, ty: f32 }
+      - { name: ers_deploy_mode, ty: u8 }
+      - { name: ers_harvested_this_lap_mguk, ty: f32 }
+      - { name: ers_harvested_this_lap_mguh, ty: f32 }
+      - { name: ers_deployed_this_lap, ty: f32 }
+      - { name: network_paused, ty: u8 }
+
+  - name: FinalClassificationData
+    fields:
+      - { name: position, ty: u8 }
+      - { name: num_laps, ty: u8 }
+      - { name: grid_position, ty: u8 }
+      - { name: points, ty: u8 }
+      - { name: num_pit_stops, ty: u8 }
+      - { name: result_status, ty: u8 }
+      - { name: best_lap_time_in_ms, ty: u32 }
+      - { name: total_race_time, ty: f64 }
+      - { name: penalties_time, ty: u8 }
+      - { name: num_penalties, ty: u8 }
+      - { name: num_tyre_stints, ty: u8 }
+      - { name: tyre_stints_actual, ty: "[u8; 8]" }
+      - { name: tyre_stints_visual, ty: "[u8; 8]" }
+      - { name: tyre_stints_end_laps, ty: "[u8; 8]" }
+
+  # F1 24 LobbyInfo: adds yourTelemetry, showOnlineNames, techLevel
+  - name: LobbyInfoData
+    fields:
+      - { name: ai_controlled, ty: u8 }
+      - { name: team_id, ty: u8 }
+      - { name: nationality, ty: u8 }
+      - { name: platform, ty: u8 }
+      - { name: name, ty: "string(48)" }
+      - { name: car_number, ty: u8 }
+      - { name: your_telemetry, ty: u8 }
+      - { name: show_online_names, ty: u8 }
+      - { name: tech_level, ty: u16 }
+      - { name: ready_status, ty: u8 }
+
+  - name: CarDamageData
+    fields:
+      - { name: tyres_wear, ty: "[f32; 4]" }
+      - { name: tyres_damage, ty: "[u8; 4]" }
+      - { name: brakes_damage, ty: "[u8; 4]" }
+      - { name: front_left_wing_damage, ty: u8 }
+      - { name: front_right_wing_damage, ty: u8 }
+      - { name: rear_wing_damage, ty: u8 }
+      - { name: floor_damage, ty: u8 }
+      - { name: diffuser_damage, ty: u8 }
+      - { name: sidepod_damage, ty: u8 }
+      - { name: drs_fault, ty: u8 }
+      - { name: ers_fault, ty: u8 }
+      - { name: gear_box_damage, ty: u8 }
+      - { name: engine_damage, ty: u8 }
+      - { name: engine_mguh_wear, ty: u8 }
+      - { name: engine_es_wear, ty: u8 }
+      - { name: engine_ce_wear, ty: u8 }
+      - { name: engine_ice_wear, ty: u8 }
+      - { name: engine_mguk_wear, ty: u8 }
+      - { name: engine_tc_wear, ty: u8 }
+      - { name: engine_blown, ty: u8 }
+      - { name: engine_seized, ty: u8 }
+
+  - name: LapHistoryData
+    fields:
+      - { name: lap_time_in_ms, ty: u32 }
+      - { name: sector1_time_ms_part, ty: u16 }
+      - { name: sector1_time_minutes_part, ty: u8 }
+      - { name: sector2_time_ms_part, ty: u16 }
+      - { name: sector2_time_minutes_part, ty: u8 }
+      - { name: sector3_time_ms_part, ty: u16 }
+      - { name: sector3_time_minutes_part, ty: u8 }
+      - { name: lap_valid_bit_flags, ty: u8 }
+
+  - name: TyreStintHistoryData
+    fields:
+      - { name: end_lap, ty: u8 }
+      - { name: tyre_actual_compound, ty: u8 }
+      - { name: tyre_visual_compound, ty: u8 }
+
+  - name: TyreSetData
+    fields:
+      - { name: actual_tyre_compound, ty: u8 }
+      - { name: visual_tyre_compound, ty: u8 }
+      - { name: wear, ty: u8 }
+      - { name: available, ty: u8 }
+      - { name: recommended_session, ty: u8 }
+      - { name: life_span, ty: u8 }
+      - { name: usable_life, ty: u8 }
+      - { name: lap_delta_time, ty: i16 }
+      - { name: fitted, ty: u8 }
+
+  # F1 24 new: TimeTrialDataSet (24 bytes)
+  - name: TimeTrialDataSet
+    fields:
+      - { name: car_idx, ty: u8 }
+      - { name: team_id, ty: u8 }
+      - { name: lap_time_in_ms, ty: u32 }
+      - { name: sector1_time_in_ms, ty: u32 }
+      - { name: sector2_time_in_ms, ty: u32 }
+      - { name: sector3_time_in_ms, ty: u32 }
+      - { name: traction_control, ty: u8 }
+      - { name: gearbox_assist, ty: u8 }
+      - { name: anti_lock_brakes, ty: u8 }
+      - { name: equal_car_performance, ty: u8 }
+      - { name: custom_setup, ty: u8 }
+      - { name: valid, ty: u8 }
+
+packets:
+  # 0: Motion — 1349 bytes (unchanged from 23)
+  - name: Motion
+    id: 0
+    size: 1349
+    fields:
+      - { name: car_motion_data, ty: "[CarMotionData; 22]" }
+
+  # 1: Session — 753 bytes (weather array 64, many new fields)
+  - name: Session
+    id: 1
+    size: 753
+    fields:
+      - { name: weather, ty: u8 }
+      - { name: track_temperature, ty: i8 }
+      - { name: air_temperature, ty: i8 }
+      - { name: total_laps, ty: u8 }
+      - { name: track_length, ty: u16 }
+      - { name: session_type, ty: u8 }
+      - { name: track_id, ty: i8 }
+      - { name: formula, ty: u8 }
+      - { name: session_time_left, ty: u16 }
+      - { name: session_duration, ty: u16 }
+      - { name: pit_speed_limit, ty: u8 }
+      - { name: game_paused, ty: u8 }
+      - { name: is_spectating, ty: u8 }
+      - { name: spectator_car_index, ty: u8 }
+      - { name: sli_pro_native_support, ty: u8 }
+      - { name: num_marshal_zones, ty: u8 }
+      - { name: marshal_zones, ty: "[MarshalZone; 21]" }
+      - { name: safety_car_status, ty: u8 }
+      - { name: network_game, ty: u8 }
+      - { name: num_weather_forecast_samples, ty: u8 }
+      - { name: weather_forecast_samples, ty: "[WeatherForecastSample; 64]" }
+      - { name: forecast_accuracy, ty: u8 }
+      - { name: ai_difficulty, ty: u8 }
+      - { name: season_link_identifier, ty: u32 }
+      - { name: weekend_link_identifier, ty: u32 }
+      - { name: session_link_identifier, ty: u32 }
+      - { name: pit_stop_window_ideal_lap, ty: u8 }
+      - { name: pit_stop_window_latest_lap, ty: u8 }
+      - { name: pit_stop_rejoin_position, ty: u8 }
+      - { name: steering_assist, ty: u8 }
+      - { name: braking_assist, ty: u8 }
+      - { name: gearbox_assist, ty: u8 }
+      - { name: pit_assist, ty: u8 }
+      - { name: pit_release_assist, ty: u8 }
+      - { name: ers_assist, ty: u8 }
+      - { name: drs_assist, ty: u8 }
+      - { name: dynamic_racing_line, ty: u8 }
+      - { name: dynamic_racing_line_type, ty: u8 }
+      - { name: game_mode, ty: u8 }
+      - { name: rule_set, ty: u8 }
+      - { name: time_of_day, ty: u32 }
+      - { name: session_length, ty: u8 }
+      - { name: speed_units_lead_player, ty: u8 }
+      - { name: temperature_units_lead_player, ty: u8 }
+      - { name: speed_units_secondary_player, ty: u8 }
+      - { name: temperature_units_secondary_player, ty: u8 }
+      - { name: num_safety_car_periods, ty: u8 }
+      - { name: num_virtual_safety_car_periods, ty: u8 }
+      - { name: num_red_flag_periods, ty: u8 }
+      - { name: equal_car_performance, ty: u8 }
+      - { name: recovery_mode, ty: u8 }
+      - { name: flashback_limit, ty: u8 }
+      - { name: surface_type, ty: u8 }
+      - { name: low_fuel_mode, ty: u8 }
+      - { name: race_starts, ty: u8 }
+      - { name: tyre_temperature, ty: u8 }
+      - { name: pit_lane_tyre_sim, ty: u8 }
+      - { name: car_damage, ty: u8 }
+      - { name: car_damage_rate, ty: u8 }
+      - { name: collisions, ty: u8 }
+      - { name: collisions_off_for_first_lap_only, ty: u8 }
+      - { name: mp_unsafe_pit_release, ty: u8 }
+      - { name: mp_off_for_griefing, ty: u8 }
+      - { name: corner_cutting_stringency, ty: u8 }
+      - { name: parc_ferme_rules, ty: u8 }
+      - { name: pit_stop_experience, ty: u8 }
+      - { name: safety_car, ty: u8 }
+      - { name: safety_car_experience, ty: u8 }
+      - { name: formation_lap, ty: u8 }
+      - { name: formation_lap_experience, ty: u8 }
+      - { name: red_flags, ty: u8 }
+      - { name: affects_licence_level_solo, ty: u8 }
+      - { name: affects_licence_level_mp, ty: u8 }
+      - { name: num_sessions_in_weekend, ty: u8 }
+      - { name: weekend_structure, ty: "[u8; 12]" }
+      - { name: sector2_lap_distance_start, ty: f32 }
+      - { name: sector3_lap_distance_start, ty: f32 }
+
+  # 2: LapData — 1285 bytes
+  - name: LapData
+    id: 2
+    size: 1285
+    fields:
+      - { name: lap_data, ty: "[LapData; 22]" }
+      - { name: time_trial_pb_car_idx, ty: u8 }
+      - { name: time_trial_rival_car_idx, ty: u8 }
+
+  # 3: Event — 45 bytes
+  - name: Event
+    id: 3
+    size: 45
+    fields:
+      - { name: event_string_code, ty: "[u8; 4]" }
+      - { name: event_details_raw, ty: "[u8; 12]" }
+
+  # 4: Participants — 1350 bytes
+  - name: Participants
+    id: 4
+    size: 1350
+    fields:
+      - { name: num_active_cars, ty: u8 }
+      - { name: participants, ty: "[ParticipantData; 22]" }
+
+  # 5: CarSetups — 1133 bytes
+  - name: CarSetups
+    id: 5
+    size: 1133
+    fields:
+      - { name: car_setups, ty: "[CarSetupData; 22]" }
+      - { name: next_front_wing_value, ty: f32 }
+
+  # 6: CarTelemetry — 1352 bytes (unchanged)
+  - name: CarTelemetry
+    id: 6
+    size: 1352
+    fields:
+      - { name: car_telemetry_data, ty: "[CarTelemetryData; 22]" }
+      - { name: mfd_panel_index, ty: u8 }
+      - { name: mfd_panel_index_secondary_player, ty: u8 }
+      - { name: suggested_gear, ty: i8 }
+
+  # 7: CarStatus — 1239 bytes (unchanged)
+  - name: CarStatus
+    id: 7
+    size: 1239
+    fields:
+      - { name: car_status_data, ty: "[CarStatusData; 22]" }
+
+  # 8: FinalClassification — 1020 bytes (unchanged)
+  - name: FinalClassification
+    id: 8
+    size: 1020
+    fields:
+      - { name: num_cars, ty: u8 }
+      - { name: classification_data, ty: "[FinalClassificationData; 22]" }
+
+  # 9: LobbyInfo — 1306 bytes
+  - name: LobbyInfo
+    id: 9
+    size: 1306
+    fields:
+      - { name: num_players, ty: u8 }
+      - { name: lobby_players, ty: "[LobbyInfoData; 22]" }
+
+  # 10: CarDamage — 953 bytes (unchanged)
+  - name: CarDamage
+    id: 10
+    size: 953
+    fields:
+      - { name: car_damage_data, ty: "[CarDamageData; 22]" }
+
+  # 11: SessionHistory — 1460 bytes (unchanged)
+  - name: SessionHistory
+    id: 11
+    size: 1460
+    fields:
+      - { name: car_idx, ty: u8 }
+      - { name: num_laps, ty: u8 }
+      - { name: num_tyre_stints, ty: u8 }
+      - { name: best_lap_time_lap_num, ty: u8 }
+      - { name: best_sector1_lap_num, ty: u8 }
+      - { name: best_sector2_lap_num, ty: u8 }
+      - { name: best_sector3_lap_num, ty: u8 }
+      - { name: lap_history_data, ty: "[LapHistoryData; 100]" }
+      - { name: tyre_stints_history_data, ty: "[TyreStintHistoryData; 8]" }
+
+  # 12: TyreSets — 231 bytes (unchanged)
+  - name: TyreSets
+    id: 12
+    size: 231
+    fields:
+      - { name: car_idx, ty: u8 }
+      - { name: tyre_set_data, ty: "[TyreSetData; 20]" }
+      - { name: fitted_idx, ty: u8 }
+
+  # 13: MotionEx — 237 bytes (adds aero heights, roll angles, chassis yaw)
+  - name: MotionEx
+    id: 13
+    size: 237
+    fields:
+      - { name: suspension_position, ty: "[f32; 4]" }
+      - { name: suspension_velocity, ty: "[f32; 4]" }
+      - { name: suspension_acceleration, ty: "[f32; 4]" }
+      - { name: wheel_speed, ty: "[f32; 4]" }
+      - { name: wheel_slip_ratio, ty: "[f32; 4]" }
+      - { name: wheel_slip_angle, ty: "[f32; 4]" }
+      - { name: wheel_lat_force, ty: "[f32; 4]" }
+      - { name: wheel_long_force, ty: "[f32; 4]" }
+      - { name: height_of_cog_above_ground, ty: f32 }
+      - { name: local_velocity_x, ty: f32 }
+      - { name: local_velocity_y, ty: f32 }
+      - { name: local_velocity_z, ty: f32 }
+      - { name: angular_velocity_x, ty: f32 }
+      - { name: angular_velocity_y, ty: f32 }
+      - { name: angular_velocity_z, ty: f32 }
+      - { name: angular_acceleration_x, ty: f32 }
+      - { name: angular_acceleration_y, ty: f32 }
+      - { name: angular_acceleration_z, ty: f32 }
+      - { name: front_wheels_angle, ty: f32 }
+      - { name: wheel_vert_force, ty: "[f32; 4]" }
+      - { name: front_aero_height, ty: f32 }
+      - { name: rear_aero_height, ty: f32 }
+      - { name: front_roll_angle, ty: f32 }
+      - { name: rear_roll_angle, ty: f32 }
+      - { name: chassis_yaw, ty: f32 }
+
+  # 14: TimeTrial — 101 bytes (new in F1 24)
+  - name: TimeTrial
+    id: 14
+    size: 101
+    fields:
+      - { name: player_session_best_data_set, ty: TimeTrialDataSet }
+      - { name: personal_best_data_set, ty: TimeTrialDataSet }
+      - { name: rival_data_set, ty: TimeTrialDataSet }
+
+events:
+  - { name: SessionStarted, code: SSTA }
+  - { name: SessionEnded, code: SEND }
+  - name: FastestLap
+    code: FTLP
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+      - { name: lap_time, ty: f32 }
+  - name: Retirement
+    code: RTMT
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+  - { name: DrsEnabled, code: DRSE }
+  - { name: DrsDisabled, code: DRSD }
+  - name: TeamMateInPits
+    code: TMPT
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+  - { name: ChequeredFlag, code: CHQF }
+  - name: RaceWinner
+    code: RCWN
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+  - name: Penalty
+    code: PENA
+    fields:
+      - { name: penalty_type, ty: u8 }
+      - { name: infringement_type, ty: u8 }
+      - { name: vehicle_idx, ty: u8 }
+      - { name: other_vehicle_idx, ty: u8 }
+      - { name: time, ty: u8 }
+      - { name: lap_num, ty: u8 }
+      - { name: places_gained, ty: u8 }
+  - name: SpeedTrap
+    code: SPTP
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+      - { name: speed, ty: f32 }
+      - { name: is_overall_fastest_in_session, ty: u8 }
+      - { name: is_driver_fastest_in_session, ty: u8 }
+      - { name: fastest_vehicle_idx_in_session, ty: u8 }
+      - { name: fastest_speed_in_session, ty: f32 }
+  - name: StartLights
+    code: STLG
+    fields:
+      - { name: num_lights, ty: u8 }
+  - { name: LightsOut, code: LGOT }
+  - name: DriveThroughServed
+    code: DTSV
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+  - name: StopGoServed
+    code: SGSV
+    fields:
+      - { name: vehicle_idx, ty: u8 }
+  - name: Flashback
+    code: FLBK
+    fields:
+      - { name: flashback_frame_identifier, ty: u32 }
+      - { name: flashback_session_time, ty: f32 }
+  - name: ButtonStatus
+    code: BUTN
+    fields:
+      - { name: button_status, ty: u32 }
+  - { name: RedFlag, code: RDFL }
+  - name: Overtake
+    code: OVTK
+    fields:
+      - { name: overtaking_vehicle_idx, ty: u8 }
+      - { name: being_overtaken_vehicle_idx, ty: u8 }
+  # New in F1 24:
+  - name: SafetyCar
+    code: SCAR
+    fields:
+      - { name: safety_car_type, ty: u8 }
+      - { name: event_type, ty: u8 }
+  - name: Collision
+    code: COLL
+    fields:
+      - { name: vehicle1_idx, ty: u8 }
+      - { name: vehicle2_idx, ty: u8 }

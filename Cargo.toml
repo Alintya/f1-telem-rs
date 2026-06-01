@@ -1,0 +1,17 @@
+[package]
+name = "f1-telem"
+version = "0.1.0"
+edition = "2021"
+description = "F1 game UDP telemetry parser supporting F1 23, 24, and 25"
+license = "MIT"
+
+[dependencies]
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+
+[[bin]]
+name = "f1-listen"
+path = "src/bin/listen.rs"
