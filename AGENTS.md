@@ -80,13 +80,15 @@ Each `spec/f1_YYYY.yaml` declares:
 - `version`: `{ format, year, module }` (e.g. `2025`, `25`, `v2025`); `GameVersion::F1_{year}` is derived from it
 - `extends` (optional): file stem of the parent spec (e.g. `f1_2024`); the child lists only differences
 - `remove` (optional): `{ structs: [names], packets: [ids], events: [codes] }` dropped from the parent
+- `consts` (optional): named array lengths, e.g. `cars: 22`; inherited, and a child override also resizes inherited arrays
+- `sizes` (optional): `{ <packet id>: <bytes> }` declared-size overrides for inherited packets the child does not restate (e.g. after changing `cars`)
 - `structs`: reusable sub-structures; replace a parent struct with the same `name` in place, else append
 - `packets`: `{ name, id, size, fields }`; replace by `id`. The event packet is `{ name: Event, id: 3, size: 45, event_packet: true }` with no fields
 - `events`: `{ name, code, fields }`; replace by `code`. Payload size = event packet size − 29 − 4
-- Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars (no quote or backslash).
+- Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. `N` may be a number, a constant, or a product such as `50 * cars`. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars (no quote or backslash).
 
 ### Adding a Game Version
-Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed structs/packets/events (a changed packet `size` means restating that packet entry). No Rust changes are needed in the library; `src/bin/listen.rs` needs a `print_vYYYY` arm if it should print the new year.
+Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed structs/packets/events. A packet whose fields change is restated; a packet that only changes size (e.g. through a struct or `consts` change) gets an entry in `sizes`. No Rust changes are needed in the library; `src/bin/listen.rs` needs a `print_vYYYY` arm if it should print the new year.
 
 ## Important Files
 

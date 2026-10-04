@@ -219,7 +219,7 @@ packets:
     id: 2
     size: 1285
     fields:
-      - { name: lap_data, ty: "[LapData; 22]" }
+      - { name: lap_data, ty: "[LapData; cars]" }
       - { name: time_trial_pb_car_idx, ty: u8 }
       - { name: time_trial_rival_car_idx, ty: u8 }
 
@@ -229,14 +229,14 @@ packets:
     size: 1350
     fields:
       - { name: num_active_cars, ty: u8 }
-      - { name: participants, ty: "[ParticipantData; 22]" }
+      - { name: participants, ty: "[ParticipantData; cars]" }
 
   # 5: CarSetups — 1133 bytes
   - name: CarSetups
     id: 5
     size: 1133
     fields:
-      - { name: car_setups, ty: "[CarSetupData; 22]" }
+      - { name: car_setups, ty: "[CarSetupData; cars]" }
       - { name: next_front_wing_value, ty: f32 }
 
   # 9: LobbyInfo — 1306 bytes
@@ -245,7 +245,7 @@ packets:
     size: 1306
     fields:
       - { name: num_players, ty: u8 }
-      - { name: lobby_players, ty: "[LobbyInfoData; 22]" }
+      - { name: lobby_players, ty: "[LobbyInfoData; cars]" }
 
   # 13: MotionEx — 237 bytes (adds aero heights, roll angles, chassis yaw)
   - name: MotionEx

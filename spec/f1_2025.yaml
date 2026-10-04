@@ -99,7 +99,7 @@ packets:
     size: 1284
     fields:
       - { name: num_active_cars, ty: u8 }
-      - { name: participants, ty: "[ParticipantData; 22]" }
+      - { name: participants, ty: "[ParticipantData; cars]" }
 
   # 8: FinalClassification — 1042 bytes (+result_reason)
   - name: FinalClassification
@@ -107,7 +107,7 @@ packets:
     size: 1042
     fields:
       - { name: num_cars, ty: u8 }
-      - { name: classification_data, ty: "[FinalClassificationData; 22]" }
+      - { name: classification_data, ty: "[FinalClassificationData; cars]" }
 
   # 9: LobbyInfo — 954 bytes (name=32)
   - name: LobbyInfo
@@ -115,14 +115,14 @@ packets:
     size: 954
     fields:
       - { name: num_players, ty: u8 }
-      - { name: lobby_players, ty: "[LobbyInfoData; 22]" }
+      - { name: lobby_players, ty: "[LobbyInfoData; cars]" }
 
   # 10: CarDamage — 1041 bytes (+tyre_blisters)
   - name: CarDamage
     id: 10
     size: 1041
     fields:
-      - { name: car_damage_data, ty: "[CarDamageData; 22]" }
+      - { name: car_damage_data, ty: "[CarDamageData; cars]" }
 
   # 13: MotionEx — 273 bytes (+chassisPitch, wheelCamber, wheelCamberGain)
   - name: MotionEx
@@ -165,7 +165,7 @@ packets:
     fields:
       - { name: num_laps, ty: u8 }
       - { name: lap_start, ty: u8 }
-      - { name: position_for_vehicle_idx, ty: "[u8; 1100]" }
+      - { name: position_for_vehicle_idx, ty: "[u8; 50 * cars]" } # 50 laps x cars
 
 events:
   # F1 25: Retirement adds reason

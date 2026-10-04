@@ -21,6 +21,14 @@ struct Spec {
     extends: Option<String>,
     #[serde(default)]
     remove: Remove,
+    /// Named array lengths, usable in `[T; N]` counts (e.g. `cars: 22`). Inherited;
+    /// a child overriding a constant also resizes the arrays it inherits.
+    #[serde(default)]
+    consts: BTreeMap<String, usize>,
+    /// Declared-size overrides for inherited packets, keyed by packet id. Needed when a
+    /// constant or struct change resizes a packet the child does not restate.
+    #[serde(default)]
+    sizes: BTreeMap<u8, usize>,
     #[serde(default)]
     structs: Vec<StructDef>,
     #[serde(default)]
@@ -91,6 +99,7 @@ struct EventDef {
 #[derive(Debug)]
 struct ResolvedSpec {
     version: VersionInfo,
+    consts: BTreeMap<String, usize>,
     structs: Vec<StructDef>,
     packets: Vec<PacketDef>,
     events: Vec<EventDef>,
@@ -138,17 +147,18 @@ fn resolve(stem: &str, raw: &HashMap<String, Spec>, visiting: &mut Vec<String>) 
     let spec = &raw[stem];
     visiting.push(stem.to_string());
 
-    let (mut structs, mut packets, mut events) = match &spec.extends {
+    let (mut consts, mut structs, mut packets, mut events) = match &spec.extends {
         Some(parent) => {
             if !raw.contains_key(parent) {
                 panic!("{stem}.yaml extends unknown spec '{parent}'");
             }
             let p = resolve(parent, raw, visiting);
-            (p.structs, p.packets, p.events)
+            (p.consts, p.structs, p.packets, p.events)
         }
-        None => (Vec::new(), Vec::new(), Vec::new()),
+        None => (BTreeMap::new(), Vec::new(), Vec::new(), Vec::new()),
     };
     visiting.pop();
+    consts.extend(spec.consts.iter().map(|(k, v)| (k.clone(), *v)));
 
     for name in &spec.remove.structs {
         remove_by(
@@ -194,11 +204,67 @@ fn resolve(stem: &str, raw: &HashMap<String, Spec>, visiting: &mut Vec<String>) 
         upsert(&mut events, e.clone(), |e| e.code.clone());
     }
 
+    for (id, size) in &spec.sizes {
+        if spec.packets.iter().any(|p| p.id == *id) {
+            panic!("{stem}.yaml: packet {id} is restated; set its size there, not in `sizes`");
+        }
+        match packets.iter_mut().find(|p| p.id == *id) {
+            Some(p) => p.size = *size,
+            None => panic!("{stem}.yaml: sizes entry for unknown packet id {id}"),
+        }
+    }
+
     ResolvedSpec {
         version: spec.version.clone(),
+        consts,
         structs,
         packets,
         events,
+    }
+}
+
+/// Replace named constants in array counts (`[T; cars]`, `[u8; 50 * cars]`) with numbers.
+/// Runs after the whole `extends` chain is resolved so child overrides apply everywhere.
+fn apply_consts(spec: &mut ResolvedSpec) {
+    let module = spec.version.module.clone();
+    let consts = &spec.consts;
+    let expand = |owner: &str, f: &mut FieldDef| {
+        let ty = f.ty.trim();
+        let Some((inner, count)) = ty
+            .strip_prefix('[')
+            .and_then(|r| r.strip_suffix(']'))
+            .and_then(|r| r.rsplit_once(';'))
+        else {
+            return;
+        };
+        let ctx = format!("{module}/{owner}.{}", f.name);
+        let n: usize = count
+            .split('*')
+            .map(|term| {
+                let term = term.trim();
+                term.parse::<usize>().unwrap_or_else(|_| {
+                    *consts.get(term).unwrap_or_else(|| {
+                        panic!("{ctx}: unknown constant '{term}' in type '{ty}'")
+                    })
+                })
+            })
+            .product();
+        f.ty = format!("[{}; {n}]", inner.trim());
+    };
+    for s in &mut spec.structs {
+        for f in &mut s.fields {
+            expand(&s.name, f);
+        }
+    }
+    for p in &mut spec.packets {
+        for f in &mut p.fields {
+            expand(&p.name, f);
+        }
+    }
+    for e in &mut spec.events {
+        for f in &mut e.fields {
+            expand(&e.name, f);
+        }
     }
 }
 
@@ -1083,7 +1149,11 @@ fn load_specs(spec_dir: &Path) -> Vec<ResolvedSpec> {
     stems.sort();
     let mut specs: Vec<ResolvedSpec> = stems
         .into_iter()
-        .map(|stem| resolve(stem, &raw, &mut Vec::new()))
+        .map(|stem| {
+            let mut spec = resolve(stem, &raw, &mut Vec::new());
+            apply_consts(&mut spec);
+            spec
+        })
         .collect();
     specs.sort_by_key(|s| s.version.format);
 

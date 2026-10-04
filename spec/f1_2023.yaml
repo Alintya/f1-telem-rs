@@ -3,6 +3,9 @@ version:
   year: 23
   module: v2023
 
+consts:
+  cars: 22 # cs_maxNumCarsInUDPData
+
 structs:
   - name: CarMotionData
     fields:
@@ -245,7 +248,7 @@ packets:
     id: 0
     size: 1349
     fields:
-      - { name: car_motion_data, ty: "[CarMotionData; 22]" }
+      - { name: car_motion_data, ty: "[CarMotionData; cars]" }
 
   # 1: Session — 644 bytes
   - name: Session
@@ -307,7 +310,7 @@ packets:
     id: 2
     size: 1131
     fields:
-      - { name: lap_data, ty: "[LapData; 22]" }
+      - { name: lap_data, ty: "[LapData; cars]" }
       - { name: time_trial_pb_car_idx, ty: u8 }
       - { name: time_trial_rival_car_idx, ty: u8 }
 
@@ -320,21 +323,21 @@ packets:
     size: 1306
     fields:
       - { name: num_active_cars, ty: u8 }
-      - { name: participants, ty: "[ParticipantData; 22]" }
+      - { name: participants, ty: "[ParticipantData; cars]" }
 
   # 5: CarSetups — 1107 bytes
   - name: CarSetups
     id: 5
     size: 1107
     fields:
-      - { name: car_setups, ty: "[CarSetupData; 22]" }
+      - { name: car_setups, ty: "[CarSetupData; cars]" }
 
   # 6: CarTelemetry — 1352 bytes
   - name: CarTelemetry
     id: 6
     size: 1352
     fields:
-      - { name: car_telemetry_data, ty: "[CarTelemetryData; 22]" }
+      - { name: car_telemetry_data, ty: "[CarTelemetryData; cars]" }
       - { name: mfd_panel_index, ty: u8 }
       - { name: mfd_panel_index_secondary_player, ty: u8 }
       - { name: suggested_gear, ty: i8 }
@@ -344,7 +347,7 @@ packets:
     id: 7
     size: 1239
     fields:
-      - { name: car_status_data, ty: "[CarStatusData; 22]" }
+      - { name: car_status_data, ty: "[CarStatusData; cars]" }
 
   # 8: FinalClassification — 1020 bytes
   - name: FinalClassification
@@ -352,7 +355,7 @@ packets:
     size: 1020
     fields:
       - { name: num_cars, ty: u8 }
-      - { name: classification_data, ty: "[FinalClassificationData; 22]" }
+      - { name: classification_data, ty: "[FinalClassificationData; cars]" }
 
   # 9: LobbyInfo — 1218 bytes
   - name: LobbyInfo
@@ -360,14 +363,14 @@ packets:
     size: 1218
     fields:
       - { name: num_players, ty: u8 }
-      - { name: lobby_players, ty: "[LobbyInfoData; 22]" }
+      - { name: lobby_players, ty: "[LobbyInfoData; cars]" }
 
   # 10: CarDamage — 953 bytes
   - name: CarDamage
     id: 10
     size: 953
     fields:
-      - { name: car_damage_data, ty: "[CarDamageData; 22]" }
+      - { name: car_damage_data, ty: "[CarDamageData; cars]" }
 
   # 11: SessionHistory — 1460 bytes
   - name: SessionHistory
