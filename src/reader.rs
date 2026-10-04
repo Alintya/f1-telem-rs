@@ -38,9 +38,10 @@ impl<const N: usize> Decode for FixedStr<N> {
 
 /// A cursor over a byte slice that reads little-endian values sequentially.
 ///
-/// All reads advance the internal position. If a read would exceed the
-/// remaining bytes, `ParseError::BufferTooShort` is returned and the
-/// position is **not** advanced.
+/// All reads advance the internal position. If a scalar or byte-array read
+/// would exceed the remaining bytes, `ParseError::BufferTooShort` is returned
+/// and the position is **not** advanced; see [`Reader::read_array`] for the
+/// element-wise exception.
 pub struct Reader<'a> {
     buf: &'a [u8],
     pos: usize,
@@ -162,6 +163,9 @@ impl<'a> Reader<'a> {
     }
 
     /// Read a fixed-size array of any decodable element type.
+    ///
+    /// Elements are decoded one by one: on error the position is left after
+    /// the elements that were read successfully.
     #[inline]
     pub fn read_array<T: Decode + Default + Copy, const N: usize>(
         &mut self,
@@ -274,5 +278,6 @@ mod tests {
                 available: 1
             })
         );
+        assert_eq!(r.position(), 2);
     }
 }

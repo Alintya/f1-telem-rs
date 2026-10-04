@@ -389,12 +389,23 @@ fn compute_struct_sizes(spec: &ResolvedSpec) -> HashMap<String, usize> {
     }
 
     for s in &spec.structs {
-        if !sizes.contains_key(&s.name) {
-            panic!(
-                "[{module}] could not resolve size for struct '{}' — likely circular or missing dependency",
-                s.name
-            );
+        if sizes.contains_key(&s.name) {
+            continue;
         }
+        // Prefer naming a reference to a struct that does not exist at all.
+        for f in &s.fields {
+            if let FieldType::StructRef(name) | FieldType::StructArray(name, _) =
+                f.field_type(module, &s.name)
+            {
+                if !spec.structs.iter().any(|d| d.name == name) {
+                    panic!("{module}/{}.{}: unknown struct '{name}'", s.name, f.name);
+                }
+            }
+        }
+        panic!(
+            "[{module}] could not resolve size for struct '{}' — circular dependency",
+            s.name
+        );
     }
 
     sizes
@@ -907,6 +918,17 @@ fn emit_crate_items(out: &mut String, specs: &[ResolvedSpec]) {
         }
     }
     writeln!(out, "/// Packet kinds across all supported versions.").unwrap();
+    writeln!(out, "///").unwrap();
+    writeln!(
+        out,
+        "/// Kinds introduced in later years still exist here; a datagram whose packet id"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// its version does not declare fails with `ParseError::UnknownPacketId`."
+    )
+    .unwrap();
     writeln!(out, "#[non_exhaustive]").unwrap();
     writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
     writeln!(out, "pub enum PacketKind {{").unwrap();
@@ -1056,8 +1078,11 @@ fn load_specs(spec_dir: &Path) -> Vec<ResolvedSpec> {
         raw.insert(stem, spec);
     }
 
-    let mut specs: Vec<ResolvedSpec> = raw
-        .keys()
+    // Resolve in sorted order so build errors are reproducible across runs.
+    let mut stems: Vec<&String> = raw.keys().collect();
+    stems.sort();
+    let mut specs: Vec<ResolvedSpec> = stems
+        .into_iter()
         .map(|stem| resolve(stem, &raw, &mut Vec::new()))
         .collect();
     specs.sort_by_key(|s| s.version.format);

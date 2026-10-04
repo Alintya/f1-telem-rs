@@ -83,7 +83,7 @@ Each `spec/f1_YYYY.yaml` declares:
 - `structs`: reusable sub-structures; replace a parent struct with the same `name` in place, else append
 - `packets`: `{ name, id, size, fields }`; replace by `id`. The event packet is `{ name: Event, id: 3, size: 45, event_packet: true }` with no fields
 - `events`: `{ name, code, fields }`; replace by `code`. Payload size = event packet size − 29 − 4
-- Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars.
+- Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars (no quote or backslash).
 
 ### Adding a Game Version
 Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed structs/packets/events (a changed packet `size` means restating that packet entry). No Rust changes are needed in the library; `src/bin/listen.rs` needs a `print_vYYYY` arm if it should print the new year.
