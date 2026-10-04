@@ -1,5 +1,5 @@
 use crate::error::ParseError;
-use crate::reader::Reader;
+use crate::reader::{Decode, Reader};
 
 /// The 29-byte packet header shared by all F1 telemetry packets across all supported years.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,9 +33,9 @@ pub struct PacketHeader {
 /// Header is always 29 bytes.
 pub const HEADER_SIZE: usize = 29;
 
-impl PacketHeader {
+impl Decode for PacketHeader {
     /// Parse a packet header from the front of a byte slice.
-    pub fn decode(reader: &mut Reader<'_>) -> Result<Self, ParseError> {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, ParseError> {
         Ok(Self {
             packet_format: reader.read_u16_le()?,
             game_year: reader.read_u8()?,

@@ -1,6 +1,7 @@
 use std::fmt;
 
 /// All errors that can occur when parsing F1 telemetry packets.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// Not enough bytes to complete the read.
@@ -12,12 +13,6 @@ pub enum ParseError {
 
     /// The packet id is not recognized for the given game version.
     UnknownPacketId { packet_id: u8, format: u16 },
-
-    /// An event string code was not recognized.
-    UnknownEventCode([u8; 4]),
-
-    /// A fixed-length name field contained invalid UTF-8.
-    InvalidUtf8 { field: &'static str },
 
     /// The actual packet size did not match the expected size for this packet type.
     SizeMismatch { expected: usize, actual: usize },
@@ -35,18 +30,8 @@ impl fmt::Display for ParseError {
             Self::UnknownPacketId { packet_id, format } => {
                 write!(f, "unknown packet id {packet_id} for format {format}")
             }
-            Self::UnknownEventCode(code) => {
-                let s = std::str::from_utf8(code).unwrap_or("????");
-                write!(f, "unknown event code: {s:?}")
-            }
-            Self::InvalidUtf8 { field } => {
-                write!(f, "invalid UTF-8 in field: {field}")
-            }
             Self::SizeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "packet size mismatch: expected {expected}, got {actual}"
-                )
+                write!(f, "packet size mismatch: expected {expected}, got {actual}")
             }
         }
     }

@@ -311,13 +311,8 @@ packets:
       - { name: time_trial_pb_car_idx, ty: u8 }
       - { name: time_trial_rival_car_idx, ty: u8 }
 
-  # 3: Event — 45 bytes (fields here are for size validation only; actual decode is special-cased)
-  - name: Event
-    id: 3
-    size: 45
-    fields:
-      - { name: event_string_code, ty: "[u8; 4]" }
-      - { name: event_details_raw, ty: "[u8; 12]" }
+  # 3: Event — 45 bytes: 4-byte event code + 12-byte payload (see `events`)
+  - { name: Event, id: 3, size: 45, event_packet: true }
 
   # 4: Participants — 1306 bytes
   - name: Participants

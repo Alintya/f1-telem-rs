@@ -1,4 +1,40 @@
 use crate::error::ParseError;
+use crate::fixed_str::FixedStr;
+
+/// A type that decodes itself from a little-endian byte cursor.
+pub trait Decode: Sized {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, ParseError>;
+}
+
+macro_rules! impl_decode_primitive {
+    ($($ty:ty => $method:ident),* $(,)?) => {
+        $(impl Decode for $ty {
+            #[inline]
+            fn decode(reader: &mut Reader<'_>) -> Result<Self, ParseError> {
+                reader.$method()
+            }
+        })*
+    };
+}
+
+impl_decode_primitive! {
+    u8 => read_u8,
+    i8 => read_i8,
+    u16 => read_u16_le,
+    i16 => read_i16_le,
+    u32 => read_u32_le,
+    i32 => read_i32_le,
+    u64 => read_u64_le,
+    f32 => read_f32_le,
+    f64 => read_f64_le,
+}
+
+impl<const N: usize> Decode for FixedStr<N> {
+    #[inline]
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, ParseError> {
+        reader.read_fixed_str()
+    }
+}
 
 /// A cursor over a byte slice that reads little-endian values sequentially.
 ///
@@ -110,18 +146,14 @@ impl<'a> Reader<'a> {
         ]))
     }
 
-    /// Read a NUL-terminated UTF-8 string from a fixed-size buffer of `len` bytes.
-    /// The full `len` bytes are always consumed from the reader.
-    /// Returns everything before the first NUL byte, decoded as UTF-8.
-    pub fn read_string(&mut self, len: usize, field: &'static str) -> Result<String, ParseError> {
-        let b = self.take(len)?;
-        let end = b.iter().position(|&c| c == 0).unwrap_or(len);
-        std::str::from_utf8(&b[..end])
-            .map(|s| s.to_owned())
-            .map_err(|_| ParseError::InvalidUtf8 { field })
+    /// Read a fixed-size, NUL-padded string buffer of `N` bytes without allocating.
+    #[inline]
+    pub fn read_fixed_str<const N: usize>(&mut self) -> Result<FixedStr<N>, ParseError> {
+        Ok(FixedStr::from_bytes(self.read_u8_array::<N>()?))
     }
 
     /// Read a fixed-size array of `u8`.
+    #[inline]
     pub fn read_u8_array<const N: usize>(&mut self) -> Result<[u8; N], ParseError> {
         let b = self.take(N)?;
         let mut arr = [0u8; N];
@@ -129,32 +161,31 @@ impl<'a> Reader<'a> {
         Ok(arr)
     }
 
-    /// Read a fixed-size array of `u16` (little-endian).
-    pub fn read_u16_array<const N: usize>(&mut self) -> Result<[u16; N], ParseError> {
-        let mut arr = [0u16; N];
+    /// Read a fixed-size array of any decodable element type.
+    #[inline]
+    pub fn read_array<T: Decode + Default + Copy, const N: usize>(
+        &mut self,
+    ) -> Result<[T; N], ParseError> {
+        let mut arr = [T::default(); N];
         for v in &mut arr {
-            *v = self.read_u16_le()?;
+            *v = T::decode(self)?;
         }
         Ok(arr)
     }
 
-    /// Read a fixed-size array of `f32` (little-endian).
-    pub fn read_f32_array<const N: usize>(&mut self) -> Result<[f32; N], ParseError> {
-        let mut arr = [0.0f32; N];
-        for v in &mut arr {
-            *v = self.read_f32_le()?;
+    /// Read a little-endian `u16` at the current position without advancing.
+    #[inline]
+    pub fn peek_u16_le(&self) -> Result<u16, ParseError> {
+        if self.remaining() < 2 {
+            return Err(ParseError::BufferTooShort {
+                needed: 2,
+                available: self.remaining(),
+            });
         }
-        Ok(arr)
-    }
-
-    /// Read a fixed-size array of `i8`.
-    pub fn read_i8_array<const N: usize>(&mut self) -> Result<[i8; N], ParseError> {
-        let b = self.take(N)?;
-        let mut arr = [0i8; N];
-        for (i, &byte) in b.iter().enumerate() {
-            arr[i] = byte as i8;
-        }
-        Ok(arr)
+        Ok(u16::from_le_bytes([
+            self.buf[self.pos],
+            self.buf[self.pos + 1],
+        ]))
     }
 
     /// Skip `n` bytes without reading them.
@@ -180,14 +211,14 @@ mod tests {
     }
 
     #[test]
-    fn read_string_nul_terminated() {
+    fn read_fixed_str_nul_terminated() {
         let mut data = [0u8; 48];
         data[0] = b'M';
         data[1] = b'a';
         data[2] = b'x';
         // rest is NUL
         let mut r = Reader::new(&data);
-        assert_eq!(r.read_string(48, "name").unwrap(), "Max");
+        assert_eq!(r.read_fixed_str::<48>().unwrap().as_str().unwrap(), "Max");
         assert_eq!(r.remaining(), 0);
     }
 
@@ -204,5 +235,44 @@ mod tests {
         ));
         // Position should not have advanced
         assert_eq!(r.position(), 0);
+    }
+
+    #[test]
+    fn peek_u16_le_does_not_advance() {
+        let data = [0xE9, 0x07, 0x01];
+        let mut r = Reader::new(&data);
+        assert_eq!(r.peek_u16_le().unwrap(), 2025);
+        assert_eq!(r.position(), 0);
+        r.skip(2).unwrap();
+        assert_eq!(
+            r.peek_u16_le(),
+            Err(ParseError::BufferTooShort {
+                needed: 2,
+                available: 1
+            })
+        );
+        assert_eq!(r.position(), 2);
+    }
+
+    #[test]
+    fn read_array_decodes_in_order() {
+        let data = [0x01, 0x00, 0x02, 0x00, 0xFF, 0xFF];
+        let mut r = Reader::new(&data);
+        assert_eq!(r.read_array::<u16, 2>().unwrap(), [1, 2]);
+        assert_eq!(r.read_array::<i16, 1>().unwrap(), [-1]);
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn read_array_truncated() {
+        let data = [0x01, 0x00, 0x02];
+        let mut r = Reader::new(&data);
+        assert_eq!(
+            r.read_array::<u16, 2>(),
+            Err(ParseError::BufferTooShort {
+                needed: 2,
+                available: 1
+            })
+        );
     }
 }

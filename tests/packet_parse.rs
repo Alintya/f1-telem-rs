@@ -312,6 +312,28 @@ fn f1_23_participants_packet() {
 }
 
 #[test]
+fn f1_23_participants_invalid_utf8_name_still_parses() {
+    let data = PacketBuilder::new()
+        .header(2023, 23, 4)
+        .u8(1) // num_active_cars
+        .zeros(7) // ai_controlled .. nationality
+        .u8(0xFF) // invalid UTF-8 lead byte
+        .u8(b'a')
+        .zeros(46) // rest of the 48-byte name
+        .pad_to(1306)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_23(v2023::Packet::Participants(p)) = &packet {
+        let name = &p.participants[0].name;
+        assert!(name.as_str().is_err());
+        assert_eq!(name.to_string_lossy(), "\u{FFFD}a");
+    } else {
+        panic!("Expected F1_23 Participants packet");
+    }
+}
+
+#[test]
 fn f1_23_car_setups_packet() {
     let data = PacketBuilder::new()
         .header(2023, 23, 5)
@@ -814,6 +836,32 @@ fn f1_25_event_stop_go_with_stop_time() {
     }
 }
 
+#[test]
+fn f1_25_event_unknown_code_keeps_payload() {
+    let mut b = PacketBuilder::new().header(2025, 25, 3);
+    for c in *b"ZZZZ" {
+        b = b.u8(c);
+    }
+    for v in 1..=12u8 {
+        b = b.u8(v);
+    }
+    let data = b.build();
+    assert_eq!(data.len(), 45);
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_25(v2025::Packet::Event(e)) = &packet {
+        assert_eq!(
+            e.event_details,
+            v2025::EventDetails::Unknown {
+                code: *b"ZZZZ",
+                payload: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            }
+        );
+    } else {
+        panic!("Expected F1_25 Event packet");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Error cases
 // ---------------------------------------------------------------------------
@@ -858,11 +906,18 @@ fn unknown_event_code() {
         .pad_to(45)
         .build();
 
-    match parse_packet(&data) {
-        Err(ParseError::UnknownEventCode(code)) => {
-            assert_eq!(&code, b"ZZZZ");
-        }
-        other => panic!("Expected UnknownEventCode, got {other:?}"),
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_23(v2023::Packet::Event(e)) = &packet {
+        assert_eq!(e.event_code, *b"ZZZZ");
+        assert_eq!(
+            e.event_details,
+            v2023::EventDetails::Unknown {
+                code: *b"ZZZZ",
+                payload: [0; 12],
+            }
+        );
+    } else {
+        panic!("Expected F1_23 Event packet, got {packet:?}");
     }
 }
 
@@ -887,4 +942,43 @@ fn buffer_too_short_for_body() {
         Err(ParseError::SizeMismatch { expected: 1349, .. }) => {}
         other => panic!("Expected SizeMismatch for motion packet, got {other:?}"),
     }
+}
+
+#[test]
+fn oversized_datagram_is_accepted() {
+    let data = PacketBuilder::new()
+        .header(2023, 23, 0)
+        .pad_to(1349)
+        .zeros(10)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    assert_eq!(packet.kind(), PacketKind::Motion);
+}
+
+// ---------------------------------------------------------------------------
+// Generated version tables
+// ---------------------------------------------------------------------------
+
+#[test]
+fn packet_kind_id_round_trip() {
+    for id in 0..=15u8 {
+        assert_eq!(PacketKind::from_id(id).unwrap().id(), id);
+    }
+    assert!(PacketKind::from_id(16).is_none());
+}
+
+#[test]
+fn game_version_from_format() {
+    for (format, year, version) in [
+        (2023, 23, GameVersion::F1_23),
+        (2024, 24, GameVersion::F1_24),
+        (2025, 25, GameVersion::F1_25),
+    ] {
+        assert_eq!(GameVersion::from_format(format), Some(version));
+        assert_eq!(version.format(), format);
+        assert_eq!(version.year(), year);
+    }
+    assert_eq!(GameVersion::F1_25.to_string(), "F1 25");
+    assert!(GameVersion::from_format(2022).is_none());
 }

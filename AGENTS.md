@@ -7,23 +7,23 @@
 ## Architecture & Data Flow
 
 ```
-spec/*.yaml ──► build.rs (serde_yaml) ──► $OUT_DIR/generated.rs
-                                              │
-src/generated.rs  ◄── include!() ────────────┘
-       │
+spec/*.yaml ──► build.rs (serde_yaml, resolves `extends`) ──► $OUT_DIR/generated.rs
+                                                                    │
+src/generated.rs  ◄── include!() ──────────────────────────────────┘
+       │            (v20XX modules + GameVersion, PacketKind, Packet)
 src/lib.rs  ──► parse_packet(&[u8]) -> Result<Packet, ParseError>
        │
-       ├─ header.rs   – parse 29-byte PacketHeader, extract packet_format
-       ├─ reader.rs   – Reader cursor: little-endian, sequential, no-alloc
-       ├─ version.rs  – GameVersion / PacketType enums, ID ↔ enum conversion
-       └─ error.rs    – ParseError enum (manual Display/Error impls)
+       ├─ header.rs    – 29-byte PacketHeader (hand-written), parse_header()
+       ├─ reader.rs    – Reader cursor + `Decode` trait: little-endian, no-alloc
+       ├─ fixed_str.rs – FixedStr<N>: inline NUL-padded string, UTF-8 checked lazily
+       └─ error.rs     – ParseError enum (manual Display/Error impls)
 ```
 
 **Runtime parse path:**
 
-1. `parse_header(data)` validates ≥29 bytes, reads `PacketHeader` via `Reader`.
-2. `parse_packet(data)` dispatches on `header.packet_format` (2023/2024/2025) to `v20XX::Packet::decode`.
-3. Version-specific `decode` reads the header, matches `packet_id`, and calls the generated struct decoder that reads fields sequentially in little-endian order.
+1. `parse_packet(data)` checks ≥29 bytes, then calls the generated `Packet::decode`.
+2. `Packet::decode` peeks `packet_format` and dispatches to `v20XX::Packet::decode`.
+3. Version `decode` reads the header, matches `packet_id`, checks the declared size, and calls `PacketX::decode_body(header, reader)`, which reads fields sequentially in little-endian order.
 4. Returns `Packet::F1_23(v2023::Packet)` | `Packet::F1_24(…)` | `Packet::F1_25(…)`.
 
 ## Key Directories
@@ -55,9 +55,9 @@ No linter, formatter config, or CI pipeline is checked in. Use `cargo fmt` and `
 - Modules: version modules named `v2023`, `v2024`, `v2025`.
 
 ### Error Handling
-- Custom `ParseError` enum in `src/error.rs` with manual `std::fmt::Display` and `std::error::Error` impls (no `thiserror`/`anyhow`).
-- Crate-level `type Result<T> = std::result::Result<T, ParseError>` alias.
-- Variants: `BufferTooShort`, `UnsupportedFormat(u16)`, `UnknownPacketId(u8)`, `UnknownEventCode([u8; 4])`, `Utf8Error`.
+- Custom `ParseError` enum (`#[non_exhaustive]`) in `src/error.rs` with manual `std::fmt::Display` and `std::error::Error` impls (no `thiserror`/`anyhow`).
+- Variants: `BufferTooShort`, `UnsupportedFormat(u16)`, `UnknownPacketId { packet_id, format }`, `SizeMismatch`.
+- Unknown event codes are not errors: they decode to `EventDetails::Unknown { code, payload }`. Invalid UTF-8 in names is not an error: `FixedStr::as_str()` reports it on access.
 
 ### No External Runtime Dependencies
 - Zero crate dependencies at runtime. `serde` and `serde_yaml` are build-dependencies only.
@@ -65,34 +65,42 @@ No linter, formatter config, or CI pipeline is checked in. Use `cargo fmt` and `
 - No unsafe code or FFI.
 
 ### Reader Pattern
-`Reader` (`src/reader.rs`) wraps `&[u8]` with a position cursor. Methods: `read_u8`, `read_u16`, `read_u32`, `read_u64`, `read_i8`, `read_i16`, `read_f32`, `read_f64`, `read_string(len)`, `read_array`. All little-endian, all return `Result<T, ParseError>`. No allocations on the parse hot path.
+`Reader` (`src/reader.rs`) wraps `&[u8]` with a position cursor. Methods: `read_u8`, `read_i8`, `read_{u16,i16,u32,i32,u64,f32,f64}_le`, `read_u8_array::<N>`, `read_array::<T, N>` (`T: Decode + Default + Copy`), `read_fixed_str::<N>`, `peek_u16_le`, `skip`. All little-endian, all return `Result<T, ParseError>`. No allocations on the parse path.
+
+All primitives, `FixedStr<N>`, `PacketHeader` and every generated struct implement `reader::Decode`.
 
 ### Code Generation
-- `build.rs` deserializes YAML specs into intermediate structs, computes and validates packet sizes (header 29 bytes + body == declared size), then emits Rust modules with `struct` definitions and `decode(&mut Reader)` methods.
+- `build.rs` loads every `spec/*.yaml`, resolves `extends` chains, sorts versions by `packet_format`, validates (packet sizes = header 29 + body, event payloads fit, no duplicate names/ids/codes, unknown YAML keys rejected), then emits one module per version plus the crate-level `GameVersion`, `PacketKind` and `Packet`.
 - Generated code lives in `$OUT_DIR/generated.rs`, pulled in via `include!` in `src/generated.rs`.
-- `cargo:rerun-if-changed` is set for `build.rs` and each `spec/*.yaml` file.
+- `cargo::rerun-if-changed` is set for `build.rs`, the `spec/` directory, and each spec file.
+- All generated and public enums are `#[non_exhaustive]`.
 
 ### YAML Spec Schema
 Each `spec/f1_YYYY.yaml` declares:
-- `version`: game year identifier
-- `header`: common 29-byte packet header fields
-- `structs`: reusable sub-structures (field name, type, optional array size)
-- `packets`: top-level packet definitions (ID, total size, body fields referencing structs)
-- `events`: event code → payload mappings for the Event packet type
+- `version`: `{ format, year, module }` (e.g. `2025`, `25`, `v2025`); `GameVersion::F1_{year}` is derived from it
+- `extends` (optional): file stem of the parent spec (e.g. `f1_2024`); the child lists only differences
+- `remove` (optional): `{ structs: [names], packets: [ids], events: [codes] }` dropped from the parent
+- `structs`: reusable sub-structures; replace a parent struct with the same `name` in place, else append
+- `packets`: `{ name, id, size, fields }`; replace by `id`. The event packet is `{ name: Event, id: 3, size: 45, event_packet: true }` with no fields
+- `events`: `{ name, code, fields }`; replace by `code`. Payload size = event packet size − 29 − 4
+- Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars.
+
+### Adding a Game Version
+Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed structs/packets/events (a changed packet `size` means restating that packet entry). No Rust changes are needed in the library; `src/bin/listen.rs` needs a `print_vYYYY` arm if it should print the new year.
 
 ## Important Files
 
 | File | Role |
 |---|---|
-| `src/lib.rs` | Crate root: module declarations, `Packet` enum, `parse_packet()` entry point |
-| `src/generated.rs` | `include!` bridge to build-generated version modules |
-| `src/reader.rs` | Zero-alloc binary cursor used by all decoders |
+| `src/lib.rs` | Crate root: module declarations, re-exports, `parse_packet()` entry point |
+| `src/generated.rs` | `include!` bridge to build-generated version modules and version enums |
+| `src/reader.rs` | Zero-alloc binary cursor and `Decode` trait used by all decoders |
+| `src/fixed_str.rs` | `FixedStr<N>` inline string type for name fields |
 | `src/header.rs` | `PacketHeader` struct, `parse_header()`, `HEADER_SIZE` constant (29) |
-| `src/error.rs` | `ParseError` enum and `Result<T>` alias |
-| `src/version.rs` | `GameVersion`, `PacketType` enums with ID conversion |
+| `src/error.rs` | `ParseError` enum |
 | `src/bin/listen.rs` | CLI binary: UDP recv → `parse_packet` → formatted stdout |
-| `build.rs` | Codegen: YAML specs → Rust decoder modules |
-| `spec/f1_2025.yaml` | Latest game spec (F1 25); others follow same schema |
+| `build.rs` | Codegen: YAML specs → Rust decoder modules, `GameVersion`, `PacketKind`, `Packet` |
+| `spec/f1_2023.yaml` | Base spec (complete); `f1_2024.yaml` and `f1_2025.yaml` extend it as diffs |
 
 ## Runtime/Tooling Preferences
 
@@ -106,7 +114,7 @@ Each `spec/f1_YYYY.yaml` declares:
 ## Testing & QA
 
 ### Test Structure
-- **Unit tests:** Inline `#[cfg(test)] mod tests` in `src/header.rs` and `src/reader.rs`.
+- **Unit tests:** Inline `#[cfg(test)] mod tests` in `src/header.rs`, `src/reader.rs`, and `src/fixed_str.rs`.
 - **Integration tests:** `tests/packet_parse.rs`—imports `f1_telem::*` and exercises the public `parse_packet` API.
 
 ### Test Data
@@ -125,4 +133,4 @@ All packet bytes are synthetically constructed in-memory using a `PacketBuilder`
 - `if let … else { panic!("…") }` for deep destructuring.
 
 ### Coverage
-All 14 base packet types are tested for F1 23. F1 24 and F1 25 tests target additions and structural changes (new packets, new fields, updated events). Error paths (unsupported format, unknown packet ID, unknown event code, truncated buffer) are explicitly tested.
+All 14 base packet types are tested for F1 23. F1 24 and F1 25 tests target additions and structural changes (new packets, new fields, updated events). Error and forward-compatibility paths (unsupported format, unknown packet ID, unknown event code → `EventDetails::Unknown`, invalid UTF-8 names, truncated and oversized buffers) are explicitly tested, as are the generated `GameVersion`/`PacketKind` tables.

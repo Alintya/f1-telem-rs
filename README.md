@@ -35,6 +35,7 @@ match parse_packet(data) {
     }
     Ok(Packet::F1_24(packet)) => { /* ... */ }
     Ok(Packet::F1_23(packet)) => { /* ... */ }
+    Ok(_) => { /* a game version added in a later crate release */ }
     Err(e) => eprintln!("parse error: {e}"),
 }
 ```
@@ -75,9 +76,15 @@ cargo run -- 192.168.1.50:20777  # custom bind address
 spec/f1_20XX.yaml ──► build.rs ──► $OUT_DIR/generated.rs ──► src/generated.rs (include!)
 ```
 
-1. YAML files in `spec/` declare every packet's layout: struct names, field names, types, array sizes, event codes, and expected total sizes.
-2. `build.rs` deserializes the specs, resolves struct references, validates that computed sizes match declared sizes (header + body), and emits Rust modules (`v2023`, `v2024`, `v2025`) with struct definitions and `decode(&mut Reader)` methods.
+1. YAML files in `spec/` declare every packet's layout: struct names, field names, types, array sizes, event codes, and expected total sizes. `f1_2023.yaml` is complete; each later year `extends` the previous one and lists only what changed.
+2. `build.rs` loads every spec in the directory, resolves inheritance, validates that computed sizes match declared sizes (header + body) and that event payloads fit, and emits one module per version (`v2023`, `v2024`, `v2025`) plus the `GameVersion`, `PacketKind` and `Packet` enums.
 3. At runtime, `parse_packet` reads the 29-byte header to determine game version and packet type, then dispatches to the generated decoder.
+
+Name fields are `FixedStr<N>`: the raw NUL-padded bytes stored inline. Use `.as_str()` (UTF-8 checked) or `.to_string_lossy()`.
+
+### Adding a game version
+
+Create `spec/f1_YYYY.yaml` with `extends: f1_<previous>` and only the changed structs, packets (by `id`) and events (by `code`). The new `vYYYY` module, `GameVersion::F1_YY` and dispatch are generated; no Rust changes are needed in the library.
 
 ## Error handling
 
@@ -88,9 +95,9 @@ spec/f1_20XX.yaml ──► build.rs ──► $OUT_DIR/generated.rs ──► s
 | `BufferTooShort` | Datagram shorter than required |
 | `UnsupportedFormat` | `packet_format` not 2023/2024/2025 |
 | `UnknownPacketId` | Packet ID not valid for the game version |
-| `UnknownEventCode` | Unrecognized 4-byte event string code |
-| `InvalidUtf8` | Name field contains invalid UTF-8 |
-| `SizeMismatch` | Datagram length doesn't match expected packet size |
+| `SizeMismatch` | Datagram shorter than the packet's declared size |
+
+Unrecognized event codes are not errors: they decode to `EventDetails::Unknown { code, payload }`. All public enums are `#[non_exhaustive]`, so new versions, packets and events are additive.
 
 ## Building & testing
 

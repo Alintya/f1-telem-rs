@@ -43,6 +43,7 @@ fn print_packet(packet: &Packet, src: std::net::SocketAddr, len: usize) {
         Packet::F1_23(p) => print_v2023(p),
         Packet::F1_24(p) => print_v2024(p),
         Packet::F1_25(p) => print_v2025(p),
+        _ => {}
     }
 }
 
@@ -69,8 +70,14 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
         Packet::Session(d) => {
             println!(
                 "  track={} type={} laps={} weather={} temp={}°C air={}°C formula={} safety_car={}",
-                d.track_id, d.session_type, d.total_laps, d.weather,
-                d.track_temperature, d.air_temperature, d.formula, d.safety_car_status,
+                d.track_id,
+                d.session_type,
+                d.total_laps,
+                d.weather,
+                d.track_temperature,
+                d.air_temperature,
+                d.formula,
+                d.safety_car_status,
             );
         }
         Packet::LapData(d) => {
@@ -80,10 +87,13 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 }
                 println!(
                     "  car[{i}] P{} lap={} last={:.3}s cur={:.3}s dist={:.0}m pit={} status={}",
-                    l.car_position, l.current_lap_num,
+                    l.car_position,
+                    l.current_lap_num,
                     l.last_lap_time_in_ms as f64 / 1000.0,
                     l.current_lap_time_in_ms as f64 / 1000.0,
-                    l.lap_distance, l.pit_status, l.result_status,
+                    l.lap_distance,
+                    l.pit_status,
+                    l.result_status,
                 );
             }
         }
@@ -123,8 +133,12 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 }
                 println!(
                     "  car[{i}] {:.0}kph throttle={:.0}% brake={:.0}% gear={} rpm={} drs={}",
-                    t.speed, t.throttle * 100.0, t.brake * 100.0,
-                    t.gear, t.engine_rpm, t.drs,
+                    t.speed,
+                    t.throttle * 100.0,
+                    t.brake * 100.0,
+                    t.gear,
+                    t.engine_rpm,
+                    t.drs,
                 );
             }
         }
@@ -135,9 +149,13 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 }
                 println!(
                     "  car[{i}] fuel={:.1}kg/{:.1} laps tyre={}/{} age={} ers={:.0}J deploy={}",
-                    s.fuel_in_tank, s.fuel_remaining_laps,
-                    s.actual_tyre_compound, s.visual_tyre_compound,
-                    s.tyres_age_laps, s.ers_store_energy, s.ers_deploy_mode,
+                    s.fuel_in_tank,
+                    s.fuel_remaining_laps,
+                    s.actual_tyre_compound,
+                    s.visual_tyre_compound,
+                    s.tyres_age_laps,
+                    s.ers_store_energy,
+                    s.ers_deploy_mode,
                 );
             }
         }
@@ -185,7 +203,12 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 "  car_idx={} laps={} stints={}",
                 d.car_idx, d.num_laps, d.num_tyre_stints,
             );
-            for (i, l) in d.lap_history_data.iter().enumerate().take(d.num_laps as usize) {
+            for (i, l) in d
+                .lap_history_data
+                .iter()
+                .enumerate()
+                .take(d.num_laps as usize)
+            {
                 println!(
                     "    lap[{i}] {:.3}s s1={:.3}s s2={:.3}s s3={:.3}s valid=0x{:02x}",
                     l.lap_time_in_ms as f64 / 1000.0,
@@ -204,8 +227,12 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 }
                 println!(
                     "    set[{i}] compound={}/{} wear={}% avail={} life={} fitted={}",
-                    t.actual_tyre_compound, t.visual_tyre_compound,
-                    t.wear, t.available, t.life_span, t.fitted,
+                    t.actual_tyre_compound,
+                    t.visual_tyre_compound,
+                    t.wear,
+                    t.available,
+                    t.life_span,
+                    t.fitted,
                 );
             }
         }
@@ -218,6 +245,7 @@ fn print_v2023(p: &f1_telem::v2023::Packet) {
                 d.front_wheels_angle,
             );
         }
+        _ => {}
     }
 }
 
@@ -226,34 +254,62 @@ fn print_event_code(code: &[u8; 4]) {
     print!("  event={s}");
 }
 
+fn print_unknown_event(code: &[u8; 4], payload: &[u8]) {
+    let s = std::str::from_utf8(code).unwrap_or("????");
+    println!(" Unknown code={s:?} payload={payload:02x?}");
+}
+
 fn print_event_23(ev: &f1_telem::v2023::EventDetails) {
     use f1_telem::v2023::EventDetails::*;
     match ev {
         SessionStarted => println!(" SessionStarted"),
         SessionEnded => println!(" SessionEnded"),
-        FastestLap { vehicle_idx, lap_time } => println!(" FastestLap car={vehicle_idx} time={lap_time:.3}s"),
+        FastestLap {
+            vehicle_idx,
+            lap_time,
+        } => println!(" FastestLap car={vehicle_idx} time={lap_time:.3}s"),
         Retirement { vehicle_idx } => println!(" Retirement car={vehicle_idx}"),
         DrsEnabled => println!(" DrsEnabled"),
         DrsDisabled => println!(" DrsDisabled"),
         TeamMateInPits { vehicle_idx } => println!(" TeamMateInPits car={vehicle_idx}"),
         ChequeredFlag => println!(" ChequeredFlag"),
         RaceWinner { vehicle_idx } => println!(" RaceWinner car={vehicle_idx}"),
-        Penalty { penalty_type, infringement_type, vehicle_idx, other_vehicle_idx, time, lap_num, places_gained } => {
+        Penalty {
+            penalty_type,
+            infringement_type,
+            vehicle_idx,
+            other_vehicle_idx,
+            time,
+            lap_num,
+            places_gained,
+        } => {
             println!(" Penalty car={vehicle_idx} other={other_vehicle_idx} type={penalty_type} infr={infringement_type} time={time}s lap={lap_num} places={places_gained}");
         }
-        SpeedTrap { vehicle_idx, speed, .. } => println!(" SpeedTrap car={vehicle_idx} speed={speed:.1}kph"),
+        SpeedTrap {
+            vehicle_idx, speed, ..
+        } => println!(" SpeedTrap car={vehicle_idx} speed={speed:.1}kph"),
         StartLights { num_lights } => println!(" StartLights count={num_lights}"),
         LightsOut => println!(" LightsOut"),
         DriveThroughServed { vehicle_idx } => println!(" DriveThroughServed car={vehicle_idx}"),
         StopGoServed { vehicle_idx } => println!(" StopGoServed car={vehicle_idx}"),
-        Flashback { flashback_frame_identifier, flashback_session_time } => {
-            println!(" Flashback frame={flashback_frame_identifier} t={flashback_session_time:.3}s");
+        Flashback {
+            flashback_frame_identifier,
+            flashback_session_time,
+        } => {
+            println!(
+                " Flashback frame={flashback_frame_identifier} t={flashback_session_time:.3}s"
+            );
         }
         ButtonStatus { button_status } => println!(" ButtonStatus bits=0x{button_status:08x}"),
         RedFlag => println!(" RedFlag"),
-        Overtake { overtaking_vehicle_idx, being_overtaken_vehicle_idx } => {
+        Overtake {
+            overtaking_vehicle_idx,
+            being_overtaken_vehicle_idx,
+        } => {
             println!(" Overtake {overtaking_vehicle_idx} passes {being_overtaken_vehicle_idx}");
         }
+        Unknown { code, payload } => print_unknown_event(code, payload),
+        _ => println!(),
     }
 }
 
@@ -266,29 +322,44 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
     match p {
         Packet::Motion(d) => {
             for (i, c) in d.car_motion_data.iter().enumerate() {
-                if c.world_position_x == 0.0 && c.world_position_y == 0.0 { continue; }
+                if c.world_position_x == 0.0 && c.world_position_y == 0.0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] pos=({:.1},{:.1},{:.1}) g=({:.2},{:.2},{:.2})",
-                    c.world_position_x, c.world_position_y, c.world_position_z,
-                    c.g_force_lateral, c.g_force_longitudinal, c.g_force_vertical,
+                    c.world_position_x,
+                    c.world_position_y,
+                    c.world_position_z,
+                    c.g_force_lateral,
+                    c.g_force_longitudinal,
+                    c.g_force_vertical,
                 );
             }
         }
         Packet::Session(d) => {
             println!(
                 "  track={} type={} laps={} weather={} temp={}°C formula={} weekend_sessions={}",
-                d.track_id, d.session_type, d.total_laps, d.weather,
-                d.track_temperature, d.formula, d.num_sessions_in_weekend,
+                d.track_id,
+                d.session_type,
+                d.total_laps,
+                d.weather,
+                d.track_temperature,
+                d.formula,
+                d.num_sessions_in_weekend,
             );
         }
         Packet::LapData(d) => {
             for (i, l) in d.lap_data.iter().enumerate() {
-                if l.result_status == 0 { continue; }
+                if l.result_status == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] P{} lap={} last={:.3}s dist={:.0}m speed_trap={:.1}kph",
-                    l.car_position, l.current_lap_num,
+                    l.car_position,
+                    l.current_lap_num,
                     l.last_lap_time_in_ms as f64 / 1000.0,
-                    l.lap_distance, l.speed_trap_fastest_speed,
+                    l.lap_distance,
+                    l.speed_trap_fastest_speed,
                 );
             }
         }
@@ -299,7 +370,9 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
         Packet::Participants(d) => {
             println!("  active_cars={}", d.num_active_cars);
             for (i, p) in d.participants.iter().enumerate() {
-                if p.name.is_empty() { continue; }
+                if p.name.is_empty() {
+                    continue;
+                }
                 println!(
                     "  [{i}] \"{}\" team={} #{} tech_level={}",
                     p.name, p.team_id, p.race_number, p.tech_level,
@@ -309,7 +382,9 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
         Packet::CarSetups(d) => {
             println!("  next_front_wing={:.1}", d.next_front_wing_value);
             for (i, s) in d.car_setups.iter().enumerate() {
-                if s.fuel_load == 0.0 && s.front_wing == 0 { continue; }
+                if s.fuel_load == 0.0 && s.front_wing == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] wing={}/{} engine_braking={}% fuel={:.1}kg",
                     s.front_wing, s.rear_wing, s.engine_braking, s.fuel_load,
@@ -318,41 +393,64 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
         }
         Packet::CarTelemetry(d) => {
             for (i, t) in d.car_telemetry_data.iter().enumerate() {
-                if t.speed == 0 { continue; }
+                if t.speed == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] {:.0}kph throttle={:.0}% brake={:.0}% gear={} rpm={}",
-                    t.speed, t.throttle * 100.0, t.brake * 100.0, t.gear, t.engine_rpm,
+                    t.speed,
+                    t.throttle * 100.0,
+                    t.brake * 100.0,
+                    t.gear,
+                    t.engine_rpm,
                 );
             }
         }
         Packet::CarStatus(d) => {
             for (i, s) in d.car_status_data.iter().enumerate() {
-                if s.max_rpm == 0 { continue; }
+                if s.max_rpm == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] fuel={:.1}kg tyre={}/{} age={}",
-                    s.fuel_in_tank, s.actual_tyre_compound, s.visual_tyre_compound, s.tyres_age_laps,
+                    s.fuel_in_tank,
+                    s.actual_tyre_compound,
+                    s.visual_tyre_compound,
+                    s.tyres_age_laps,
                 );
             }
         }
         Packet::FinalClassification(d) => {
             for (i, c) in d.classification_data.iter().enumerate() {
-                if c.result_status == 0 { continue; }
+                if c.result_status == 0 {
+                    continue;
+                }
                 println!(
                     "  [{i}] P{} laps={} pts={} best={:.3}s status={}",
-                    c.position, c.num_laps, c.points,
-                    c.best_lap_time_in_ms as f64 / 1000.0, c.result_status,
+                    c.position,
+                    c.num_laps,
+                    c.points,
+                    c.best_lap_time_in_ms as f64 / 1000.0,
+                    c.result_status,
                 );
             }
         }
         Packet::LobbyInfo(d) => {
             for (i, l) in d.lobby_players.iter().enumerate() {
-                if l.name.is_empty() { continue; }
-                println!("  [{i}] \"{}\" team={} tech={}",l.name, l.team_id, l.tech_level);
+                if l.name.is_empty() {
+                    continue;
+                }
+                println!(
+                    "  [{i}] \"{}\" team={} tech={}",
+                    l.name, l.team_id, l.tech_level
+                );
             }
         }
         Packet::CarDamage(d) => {
             for (i, c) in d.car_damage_data.iter().enumerate() {
-                if c.tyres_wear.iter().all(|&w| w == 0.0) { continue; }
+                if c.tyres_wear.iter().all(|&w| w == 0.0) {
+                    continue;
+                }
                 println!(
                     "  car[{i}] tyres=[{:.0}%,{:.0}%,{:.0}%,{:.0}%]",
                     c.tyres_wear[0], c.tyres_wear[1], c.tyres_wear[2], c.tyres_wear[3],
@@ -369,8 +467,11 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
             println!(
                 "  cog={:.3} aero_h={:.3}/{:.3} roll={:.3}/{:.3} yaw={:.3}",
                 d.height_of_cog_above_ground,
-                d.front_aero_height, d.rear_aero_height,
-                d.front_roll_angle, d.rear_roll_angle, d.chassis_yaw,
+                d.front_aero_height,
+                d.rear_aero_height,
+                d.front_roll_angle,
+                d.rear_roll_angle,
+                d.chassis_yaw,
             );
         }
         Packet::TimeTrial(d) => {
@@ -378,13 +479,20 @@ fn print_v2024(p: &f1_telem::v2024::Packet) {
             let rival = &d.rival_data_set;
             println!(
                 "  PB: {:.3}s (car={} team={} valid={})",
-                pb.lap_time_in_ms as f64 / 1000.0, pb.car_idx, pb.team_id, pb.valid,
+                pb.lap_time_in_ms as f64 / 1000.0,
+                pb.car_idx,
+                pb.team_id,
+                pb.valid,
             );
             println!(
                 "  Rival: {:.3}s (car={} team={} valid={})",
-                rival.lap_time_in_ms as f64 / 1000.0, rival.car_idx, rival.team_id, rival.valid,
+                rival.lap_time_in_ms as f64 / 1000.0,
+                rival.car_idx,
+                rival.team_id,
+                rival.valid,
             );
         }
+        _ => {}
     }
 }
 
@@ -393,33 +501,57 @@ fn print_event_24(ev: &f1_telem::v2024::EventDetails) {
     match ev {
         SessionStarted => println!(" SessionStarted"),
         SessionEnded => println!(" SessionEnded"),
-        FastestLap { vehicle_idx, lap_time } => println!(" FastestLap car={vehicle_idx} {lap_time:.3}s"),
+        FastestLap {
+            vehicle_idx,
+            lap_time,
+        } => println!(" FastestLap car={vehicle_idx} {lap_time:.3}s"),
         Retirement { vehicle_idx } => println!(" Retirement car={vehicle_idx}"),
         DrsEnabled => println!(" DrsEnabled"),
         DrsDisabled => println!(" DrsDisabled"),
         TeamMateInPits { vehicle_idx } => println!(" TeamMateInPits car={vehicle_idx}"),
         ChequeredFlag => println!(" ChequeredFlag"),
         RaceWinner { vehicle_idx } => println!(" RaceWinner car={vehicle_idx}"),
-        Penalty { vehicle_idx, penalty_type, infringement_type, .. } => {
+        Penalty {
+            vehicle_idx,
+            penalty_type,
+            infringement_type,
+            ..
+        } => {
             println!(" Penalty car={vehicle_idx} type={penalty_type} infr={infringement_type}");
         }
-        SpeedTrap { vehicle_idx, speed, .. } => println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph"),
+        SpeedTrap {
+            vehicle_idx, speed, ..
+        } => println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph"),
         StartLights { num_lights } => println!(" StartLights {num_lights}"),
         LightsOut => println!(" LightsOut"),
         DriveThroughServed { vehicle_idx } => println!(" DriveThroughServed car={vehicle_idx}"),
         StopGoServed { vehicle_idx } => println!(" StopGoServed car={vehicle_idx}"),
-        Flashback { flashback_frame_identifier, .. } => println!(" Flashback frame={flashback_frame_identifier}"),
+        Flashback {
+            flashback_frame_identifier,
+            ..
+        } => println!(" Flashback frame={flashback_frame_identifier}"),
         ButtonStatus { button_status } => println!(" Buttons 0x{button_status:08x}"),
         RedFlag => println!(" RedFlag"),
-        Overtake { overtaking_vehicle_idx, being_overtaken_vehicle_idx } => {
+        Overtake {
+            overtaking_vehicle_idx,
+            being_overtaken_vehicle_idx,
+        } => {
             println!(" Overtake {overtaking_vehicle_idx} passes {being_overtaken_vehicle_idx}");
         }
-        SafetyCar { safety_car_type, event_type } => {
+        SafetyCar {
+            safety_car_type,
+            event_type,
+        } => {
             println!(" SafetyCar type={safety_car_type} event={event_type}");
         }
-        Collision { vehicle1_idx, vehicle2_idx } => {
+        Collision {
+            vehicle1_idx,
+            vehicle2_idx,
+        } => {
             println!(" Collision {vehicle1_idx} <-> {vehicle2_idx}");
         }
+        Unknown { code, payload } => print_unknown_event(code, payload),
+        _ => println!(),
     }
 }
 
@@ -432,28 +564,37 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
     match p {
         Packet::Motion(d) => {
             for (i, c) in d.car_motion_data.iter().enumerate() {
-                if c.world_position_x == 0.0 && c.world_position_y == 0.0 { continue; }
+                if c.world_position_x == 0.0 && c.world_position_y == 0.0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] pos=({:.1},{:.1},{:.1}) g=({:.2},{:.2},{:.2})",
-                    c.world_position_x, c.world_position_y, c.world_position_z,
-                    c.g_force_lateral, c.g_force_longitudinal, c.g_force_vertical,
+                    c.world_position_x,
+                    c.world_position_y,
+                    c.world_position_z,
+                    c.g_force_lateral,
+                    c.g_force_longitudinal,
+                    c.g_force_vertical,
                 );
             }
         }
         Packet::Session(d) => {
             println!(
                 "  track={} type={} laps={} weather={} temp={}°C formula={}",
-                d.track_id, d.session_type, d.total_laps, d.weather,
-                d.track_temperature, d.formula,
+                d.track_id, d.session_type, d.total_laps, d.weather, d.track_temperature, d.formula,
             );
         }
         Packet::LapData(d) => {
             for (i, l) in d.lap_data.iter().enumerate() {
-                if l.result_status == 0 { continue; }
+                if l.result_status == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] P{} lap={} last={:.3}s dist={:.0}m",
-                    l.car_position, l.current_lap_num,
-                    l.last_lap_time_in_ms as f64 / 1000.0, l.lap_distance,
+                    l.car_position,
+                    l.current_lap_num,
+                    l.last_lap_time_in_ms as f64 / 1000.0,
+                    l.lap_distance,
                 );
             }
         }
@@ -464,12 +605,19 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
         Packet::Participants(d) => {
             println!("  active_cars={}", d.num_active_cars);
             for (i, p) in d.participants.iter().enumerate() {
-                if p.name.is_empty() { continue; }
+                if p.name.is_empty() {
+                    continue;
+                }
                 println!(
                     "  [{i}] \"{}\" team={} #{} tech={} colours={}",
                     p.name, p.team_id, p.race_number, p.tech_level, p.num_colours,
                 );
-                for (ci, c) in p.livery_colours.iter().enumerate().take(p.num_colours as usize) {
+                for (ci, c) in p
+                    .livery_colours
+                    .iter()
+                    .enumerate()
+                    .take(p.num_colours as usize)
+                {
                     println!("    colour[{ci}] rgb=({},{},{})", c.red, c.green, c.blue);
                 }
             }
@@ -477,7 +625,9 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
         Packet::CarSetups(d) => {
             println!("  next_front_wing={:.1}", d.next_front_wing_value);
             for (i, s) in d.car_setups.iter().enumerate() {
-                if s.fuel_load == 0.0 && s.front_wing == 0 { continue; }
+                if s.fuel_load == 0.0 && s.front_wing == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] wing={}/{} engine_braking={}% fuel={:.1}kg",
                     s.front_wing, s.rear_wing, s.engine_braking, s.fuel_load,
@@ -486,45 +636,75 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
         }
         Packet::CarTelemetry(d) => {
             for (i, t) in d.car_telemetry_data.iter().enumerate() {
-                if t.speed == 0 { continue; }
+                if t.speed == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] {:.0}kph throttle={:.0}% brake={:.0}% gear={} rpm={}",
-                    t.speed, t.throttle * 100.0, t.brake * 100.0, t.gear, t.engine_rpm,
+                    t.speed,
+                    t.throttle * 100.0,
+                    t.brake * 100.0,
+                    t.gear,
+                    t.engine_rpm,
                 );
             }
         }
         Packet::CarStatus(d) => {
             for (i, s) in d.car_status_data.iter().enumerate() {
-                if s.max_rpm == 0 { continue; }
+                if s.max_rpm == 0 {
+                    continue;
+                }
                 println!(
                     "  car[{i}] fuel={:.1}kg tyre={}/{} age={}",
-                    s.fuel_in_tank, s.actual_tyre_compound, s.visual_tyre_compound, s.tyres_age_laps,
+                    s.fuel_in_tank,
+                    s.actual_tyre_compound,
+                    s.visual_tyre_compound,
+                    s.tyres_age_laps,
                 );
             }
         }
         Packet::FinalClassification(d) => {
             for (i, c) in d.classification_data.iter().enumerate() {
-                if c.result_status == 0 { continue; }
+                if c.result_status == 0 {
+                    continue;
+                }
                 println!(
                     "  [{i}] P{} laps={} pts={} best={:.3}s status={} reason={}",
-                    c.position, c.num_laps, c.points,
-                    c.best_lap_time_in_ms as f64 / 1000.0, c.result_status, c.result_reason,
+                    c.position,
+                    c.num_laps,
+                    c.points,
+                    c.best_lap_time_in_ms as f64 / 1000.0,
+                    c.result_status,
+                    c.result_reason,
                 );
             }
         }
         Packet::LobbyInfo(d) => {
             for (i, l) in d.lobby_players.iter().enumerate() {
-                if l.name.is_empty() { continue; }
-                println!("  [{i}] \"{}\" team={} tech={}", l.name, l.team_id, l.tech_level);
+                if l.name.is_empty() {
+                    continue;
+                }
+                println!(
+                    "  [{i}] \"{}\" team={} tech={}",
+                    l.name, l.team_id, l.tech_level
+                );
             }
         }
         Packet::CarDamage(d) => {
             for (i, c) in d.car_damage_data.iter().enumerate() {
-                if c.tyres_wear.iter().all(|&w| w == 0.0) { continue; }
+                if c.tyres_wear.iter().all(|&w| w == 0.0) {
+                    continue;
+                }
                 println!(
                     "  car[{i}] tyres=[{:.0}%,{:.0}%,{:.0}%,{:.0}%] blisters=[{},{},{},{}]",
-                    c.tyres_wear[0], c.tyres_wear[1], c.tyres_wear[2], c.tyres_wear[3],
-                    c.tyre_blisters[0], c.tyre_blisters[1], c.tyre_blisters[2], c.tyre_blisters[3],
+                    c.tyres_wear[0],
+                    c.tyres_wear[1],
+                    c.tyres_wear[2],
+                    c.tyres_wear[3],
+                    c.tyre_blisters[0],
+                    c.tyre_blisters[1],
+                    c.tyre_blisters[2],
+                    c.tyre_blisters[3],
                 );
             }
         }
@@ -538,20 +718,30 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
             println!(
                 "  cog={:.3} aero_h={:.3}/{:.3} roll={:.3}/{:.3} yaw={:.3} pitch={:.3}",
                 d.height_of_cog_above_ground,
-                d.front_aero_height, d.rear_aero_height,
-                d.front_roll_angle, d.rear_roll_angle,
-                d.chassis_yaw, d.chassis_pitch,
+                d.front_aero_height,
+                d.rear_aero_height,
+                d.front_roll_angle,
+                d.rear_roll_angle,
+                d.chassis_yaw,
+                d.chassis_pitch,
             );
             println!(
                 "  camber=[{:.3},{:.3},{:.3},{:.3}] gain=[{:.3},{:.3},{:.3},{:.3}]",
-                d.wheel_camber[0], d.wheel_camber[1], d.wheel_camber[2], d.wheel_camber[3],
-                d.wheel_camber_gain[0], d.wheel_camber_gain[1], d.wheel_camber_gain[2], d.wheel_camber_gain[3],
+                d.wheel_camber[0],
+                d.wheel_camber[1],
+                d.wheel_camber[2],
+                d.wheel_camber[3],
+                d.wheel_camber_gain[0],
+                d.wheel_camber_gain[1],
+                d.wheel_camber_gain[2],
+                d.wheel_camber_gain[3],
             );
         }
         Packet::TimeTrial(d) => {
             let pb = &d.personal_best_data_set;
             let rival = &d.rival_data_set;
-            println!("  PB: {:.3}s  Rival: {:.3}s",
+            println!(
+                "  PB: {:.3}s  Rival: {:.3}s",
                 pb.lap_time_in_ms as f64 / 1000.0,
                 rival.lap_time_in_ms as f64 / 1000.0,
             );
@@ -565,10 +755,15 @@ fn print_v2025(p: &f1_telem::v2025::Packet) {
                     .filter(|&p| p > 0)
                     .collect();
                 if !positions.is_empty() {
-                    println!("    lap[{}] positions={:?}", lap + d.lap_start as usize, positions);
+                    println!(
+                        "    lap[{}] positions={:?}",
+                        lap + d.lap_start as usize,
+                        positions
+                    );
                 }
             }
         }
+        _ => {}
     }
 }
 
@@ -577,34 +772,64 @@ fn print_event_25(ev: &f1_telem::v2025::EventDetails) {
     match ev {
         SessionStarted => println!(" SessionStarted"),
         SessionEnded => println!(" SessionEnded"),
-        FastestLap { vehicle_idx, lap_time } => println!(" FastestLap car={vehicle_idx} {lap_time:.3}s"),
-        Retirement { vehicle_idx, reason } => println!(" Retirement car={vehicle_idx} reason={reason}"),
+        FastestLap {
+            vehicle_idx,
+            lap_time,
+        } => println!(" FastestLap car={vehicle_idx} {lap_time:.3}s"),
+        Retirement {
+            vehicle_idx,
+            reason,
+        } => println!(" Retirement car={vehicle_idx} reason={reason}"),
         DrsEnabled => println!(" DrsEnabled"),
         DrsDisabled { reason } => println!(" DrsDisabled reason={reason}"),
         TeamMateInPits { vehicle_idx } => println!(" TeamMateInPits car={vehicle_idx}"),
         ChequeredFlag => println!(" ChequeredFlag"),
         RaceWinner { vehicle_idx } => println!(" RaceWinner car={vehicle_idx}"),
-        Penalty { vehicle_idx, penalty_type, infringement_type, .. } => {
+        Penalty {
+            vehicle_idx,
+            penalty_type,
+            infringement_type,
+            ..
+        } => {
             println!(" Penalty car={vehicle_idx} type={penalty_type} infr={infringement_type}");
         }
-        SpeedTrap { vehicle_idx, speed, .. } => println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph"),
+        SpeedTrap {
+            vehicle_idx, speed, ..
+        } => println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph"),
         StartLights { num_lights } => println!(" StartLights {num_lights}"),
         LightsOut => println!(" LightsOut"),
         DriveThroughServed { vehicle_idx } => println!(" DriveThroughServed car={vehicle_idx}"),
-        StopGoServed { vehicle_idx, stop_time } => {
+        StopGoServed {
+            vehicle_idx,
+            stop_time,
+        } => {
             println!(" StopGoServed car={vehicle_idx} stop_time={stop_time:.1}s");
         }
-        Flashback { flashback_frame_identifier, .. } => println!(" Flashback frame={flashback_frame_identifier}"),
+        Flashback {
+            flashback_frame_identifier,
+            ..
+        } => println!(" Flashback frame={flashback_frame_identifier}"),
         ButtonStatus { button_status } => println!(" Buttons 0x{button_status:08x}"),
         RedFlag => println!(" RedFlag"),
-        Overtake { overtaking_vehicle_idx, being_overtaken_vehicle_idx } => {
+        Overtake {
+            overtaking_vehicle_idx,
+            being_overtaken_vehicle_idx,
+        } => {
             println!(" Overtake {overtaking_vehicle_idx} passes {being_overtaken_vehicle_idx}");
         }
-        SafetyCar { safety_car_type, event_type } => {
+        SafetyCar {
+            safety_car_type,
+            event_type,
+        } => {
             println!(" SafetyCar type={safety_car_type} event={event_type}");
         }
-        Collision { vehicle1_idx, vehicle2_idx } => {
+        Collision {
+            vehicle1_idx,
+            vehicle2_idx,
+        } => {
             println!(" Collision {vehicle1_idx} <-> {vehicle2_idx}");
         }
+        Unknown { code, payload } => print_unknown_event(code, payload),
+        _ => println!(),
     }
 }
