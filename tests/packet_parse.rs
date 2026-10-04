@@ -1174,6 +1174,175 @@ fn oversized_datagram_is_accepted() {
 }
 
 // ---------------------------------------------------------------------------
+// Version-independent view (`common`)
+// ---------------------------------------------------------------------------
+
+/// Records what the common view exposes, through `Packet::visit` only.
+#[derive(Default)]
+struct Recorder {
+    motion_calls: usize,
+    cars: usize,
+    g_force_lateral: f32,
+    team_id: Option<u16>,
+    has_livery: Option<bool>,
+    harvest_limit: Option<Option<f32>>,
+    event: Option<common::EventDetails>,
+}
+
+impl common::PacketVisitor for Recorder {
+    fn motion<P: common::PacketMotion>(&mut self, p: &P) {
+        use common::CarMotionData;
+        self.motion_calls += 1;
+        self.cars = p.car_motion_data().len();
+        self.g_force_lateral = p.car_motion_data()[0].g_force_lateral();
+    }
+
+    fn participants<P: common::PacketParticipants>(&mut self, p: &P) {
+        use common::ParticipantData;
+        let first = &p.participants()[0];
+        self.team_id = Some(first.team_id());
+        self.has_livery = Some(first.livery_colours().is_some());
+    }
+
+    fn car_status<P: common::PacketCarStatus>(&mut self, p: &P) {
+        use common::CarStatusData;
+        self.harvest_limit = Some(p.car_status_data()[0].ers_harvest_limit_per_lap());
+    }
+
+    fn event<P: common::PacketEvent>(&mut self, p: &P) {
+        self.event = Some(p.event_details());
+    }
+}
+
+fn record(data: &[u8]) -> Recorder {
+    let mut r = Recorder::default();
+    parse_packet(data).unwrap().visit(&mut r);
+    r
+}
+
+#[test]
+fn common_g_force_is_physical_across_versions() {
+    // F1 25 sends g-force as f32; 2026 sends it as i16 thousandths.
+    let f1_25 = PacketBuilder::new()
+        .header(2025, 25, 0)
+        .zeros(6 * 4 + 6 * 2)
+        .f32(1.5)
+        .pad_to(1349)
+        .build();
+    let f1_26 = PacketBuilder::new()
+        .header(2026, 26, 0)
+        .zeros(6 * 4 + 6 * 2)
+        .i16(1500)
+        .pad_to(1325)
+        .build();
+
+    let (a, b) = (record(&f1_25), record(&f1_26));
+    assert!((a.g_force_lateral - 1.5).abs() < 1e-6);
+    assert!((b.g_force_lateral - 1.5).abs() < 1e-6);
+    assert_eq!((a.cars, b.cars), (22, 24));
+}
+
+#[test]
+fn common_team_id_widens_and_livery_is_optional() {
+    let f1_23 = PacketBuilder::new()
+        .header(2023, 23, 4)
+        .u8(1) // num_active_cars
+        .u8(0) // ai_controlled
+        .u8(0) // driver_id
+        .u8(0) // network_id
+        .u8(255) // team_id (u8)
+        .pad_to(1306)
+        .build();
+    let f1_26 = PacketBuilder::new()
+        .header(2026, 26, 4)
+        .u8(1)
+        .u8(0)
+        .u16(0)
+        .u16(0)
+        .u16(489) // team_id (u16)
+        .pad_to(1470)
+        .build();
+
+    let (a, b) = (record(&f1_23), record(&f1_26));
+    assert_eq!(a.team_id, Some(255));
+    assert_eq!(a.has_livery, Some(false));
+    assert_eq!(b.team_id, Some(489));
+    assert_eq!(b.has_livery, Some(true));
+}
+
+#[test]
+fn common_field_missing_in_version_is_none() {
+    let f1_25 = PacketBuilder::new()
+        .header(2025, 25, 7)
+        .pad_to(1239)
+        .build();
+    let f1_26 = PacketBuilder::new()
+        .header(2026, 26, 7)
+        .zeros(50)
+        .f32(2.5) // ers_harvest_limit_per_lap
+        .pad_to(1445)
+        .build();
+
+    assert_eq!(record(&f1_25).harvest_limit, Some(None));
+    assert_eq!(record(&f1_26).harvest_limit, Some(Some(2.5)));
+}
+
+#[test]
+fn common_event_details_fill_missing_fields_with_none() {
+    let event = |format: u16, year: u8, code: &str, payload: &[u8]| {
+        let mut b = PacketBuilder::new().header(format, year, 3).string(code, 4);
+        for &v in payload {
+            b = b.u8(v);
+        }
+        record(&b.pad_to(45).build()).event.unwrap()
+    };
+
+    assert_eq!(
+        event(2023, 23, "DRSD", &[]),
+        common::EventDetails::DrsDisabled { reason: None }
+    );
+    assert_eq!(
+        event(2025, 25, "DRSD", &[1]),
+        common::EventDetails::DrsDisabled { reason: Some(1) }
+    );
+    assert_eq!(
+        event(2024, 24, "COLL", &[3, 4, 2]),
+        common::EventDetails::Collision {
+            vehicle1_idx: 3,
+            vehicle2_idx: 4,
+            severity: None,
+        }
+    );
+    assert_eq!(
+        event(2026, 26, "COLL", &[3, 4, 2]),
+        common::EventDetails::Collision {
+            vehicle1_idx: 3,
+            vehicle2_idx: 4,
+            severity: Some(2),
+        }
+    );
+    // Codes a version does not know stay Unknown, even if a later version defines them.
+    assert!(matches!(
+        event(2025, 25, "PMEN", &[1]),
+        common::EventDetails::Unknown { code, .. } if &code == b"PMEN"
+    ));
+}
+
+#[test]
+fn visitor_calls_only_the_matching_method() {
+    let motion = PacketBuilder::new()
+        .header(2024, 24, 0)
+        .pad_to(1349)
+        .build();
+    let session = PacketBuilder::new().header(2024, 24, 1).pad_to(753).build();
+
+    assert_eq!(record(&motion).motion_calls, 1);
+    let r = record(&session); // Session uses the default no-op method
+    assert_eq!(r.motion_calls, 0);
+    assert!(r.event.is_none() && r.team_id.is_none());
+}
+
+// ---------------------------------------------------------------------------
 // Generated version tables
 // ---------------------------------------------------------------------------
 

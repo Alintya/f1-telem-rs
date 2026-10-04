@@ -13,36 +13,58 @@ Add to your `Cargo.toml`:
 f1-telem = { path = "." }  # or publish/git reference
 ```
 
-Parse a raw UDP datagram:
+Parse a raw UDP datagram and handle it the same way for every game version through the `common` view:
+
+```rust
+use f1_telem::common::*;
+use f1_telem::parse_packet;
+
+struct Dashboard;
+
+impl PacketVisitor for Dashboard {
+    fn car_telemetry<P: PacketCarTelemetry>(&mut self, packet: &P) {
+        let player = packet.header().player_car_index as usize;
+        let car = &packet.car_telemetry_data()[player];
+        println!("{} km/h, gear {}", car.speed(), car.gear());
+    }
+
+    fn event<P: PacketEvent>(&mut self, packet: &P) {
+        if let EventDetails::Collision { vehicle1_idx, vehicle2_idx, severity } = packet.event_details() {
+            println!("collision {vehicle1_idx} <-> {vehicle2_idx} (severity {severity:?})");
+        }
+    }
+    // Every other packet kind defaults to doing nothing.
+}
+
+let data: &[u8] = /* recv_from(...) */;
+match parse_packet(data) {
+    Ok(packet) => packet.visit(&mut Dashboard),
+    Err(e) => eprintln!("parse error: {e}"),
+}
+```
+
+Each struct and packet has a trait of the same name in `common`, implemented by every version. Accessors return a type that fits all versions: narrower integers are widened (`team_id()` is `u16`), quantised values are scaled (`g_force_lateral()` is `f32` in g even where the game sends `i16`), arrays whose length differs are slices (22 vs 24 cars), names are `Cow<str>`, and fields a version lacks return `Option` (`None` for that version). `common::EventDetails` is the union of all versions' events. New versions and packet kinds never break a `PacketVisitor`.
+
+For exact wire values, match on the version-specific types instead:
 
 ```rust
 use f1_telem::{parse_packet, Packet};
 
-let data: &[u8] = /* recv_from(...) */;
-
 match parse_packet(data) {
-    Ok(Packet::F1_25(packet)) => {
-        let header = packet.header();
-        println!("session {}, frame {}", header.session_uid, header.frame_identifier);
-
-        // Match specific packet types
-        use f1_telem::v2025::Packet as P;
-        match packet {
-            P::CarTelemetry(telemetry) => { /* ... */ }
-            P::LapData(laps) => { /* ... */ }
-            _ => {}
+    Ok(Packet::F1_26(packet)) => {
+        use f1_telem::v2026::Packet as P;
+        if let P::Motion(m) = packet {
+            let raw: i16 = m.car_motion_data[0].g_force_lateral; // thousandths of a g
         }
     }
-    Ok(Packet::F1_24(packet)) => { /* ... */ }
-    Ok(Packet::F1_23(packet)) => { /* ... */ }
-    Ok(_) => { /* a game version added in a later crate release */ }
+    Ok(_) => { /* other versions */ }
     Err(e) => eprintln!("parse error: {e}"),
 }
 ```
 
 ### Included listener binary
 
-A simple CLI binary is included that binds a UDP socket and prints decoded packets to stdout:
+A simple CLI binary is included that binds a UDP socket and prints decoded packets to stdout. It is written once against the `common` view, so it prints every supported version:
 
 ```sh
 cargo run                        # listens on 0.0.0.0:20777
