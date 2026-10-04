@@ -863,6 +863,223 @@ fn f1_25_event_unknown_code_keeps_payload() {
 }
 
 // ---------------------------------------------------------------------------
+// F1 25 2026 Season Pack (packet format 2026)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn f1_26_motion_with_quantised_g_force() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 0)
+        .f32(10.0) // world_position_x
+        .zeros(5 * 4 + 6 * 2) // rest of position/velocity, direction vectors
+        .i16(1500) // g_force_lateral (1.5 g)
+        .i16(-250) // g_force_longitudinal
+        .i16(1000) // g_force_vertical
+        .f32(0.5) // yaw
+        .pad_to(1325)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    assert_eq!(packet.version(), GameVersion::F1_26);
+    if let Packet::F1_26(v2026::Packet::Motion(m)) = &packet {
+        assert_eq!(m.car_motion_data.len(), 24);
+        let car = &m.car_motion_data[0];
+        assert!((car.world_position_x - 10.0).abs() < 0.001);
+        assert_eq!(car.g_force_lateral, 1500);
+        assert_eq!(car.g_force_longitudinal, -250);
+        assert_eq!(car.g_force_vertical, 1000);
+        assert!((car.yaw - 0.5).abs() < 0.001);
+    } else {
+        panic!("Expected F1_26 Motion packet");
+    }
+}
+
+#[test]
+fn f1_26_session_with_aero_and_drs_zones() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 1)
+        .zeros(724) // F1 25 session fields
+        .u8(1) // active_aero_track_status (partial)
+        .u8(2) // num_active_aero_zones_full
+        .f32(0.1) // active_aero_zones_full[0].zone_start
+        .f32(0.2) // active_aero_zones_full[0].zone_end
+        .zeros(7 * 8)
+        .u8(0) // num_active_aero_zones_partial
+        .zeros(8 * 8)
+        .u8(1) // num_drs_zones
+        .f32(0.5) // drs_zones[0].zone_start
+        .f32(0.6) // drs_zones[0].zone_end
+        .zeros(3 * 8)
+        .f32(0.215) // start_reaction_time
+        .u8(1) // anti_lock_brakes_assist
+        .u8(2) // traction_control_assist
+        .u8(1) // dynamic_racing_line_hi_vis
+        .u8(3) // dynamic_racing_line_colour_blind
+        .u8(1) // recurring_rewind_prompt
+        .build();
+    assert_eq!(data.len(), 926);
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::Session(s)) = &packet {
+        assert_eq!(s.active_aero_track_status, 1);
+        assert_eq!(s.num_active_aero_zones_full, 2);
+        assert!((s.active_aero_zones_full[0].zone_end - 0.2).abs() < 0.001);
+        assert_eq!(s.num_drs_zones, 1);
+        assert!((s.drs_zones[0].zone_start - 0.5).abs() < 0.001);
+        assert!((s.start_reaction_time - 0.215).abs() < 0.001);
+        assert_eq!(s.dynamic_racing_line_colour_blind, 3);
+        assert_eq!(s.recurring_rewind_prompt, 1);
+    } else {
+        panic!("Expected F1_26 Session packet");
+    }
+}
+
+#[test]
+fn f1_26_participants_with_u16_ids() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 4)
+        .u8(22) // num_active_cars
+        .u8(0) // ai_controlled
+        .u16(65535) // driver_id (network human)
+        .u16(7) // network_id
+        .u16(489) // team_id (F2 '26 team, > 255)
+        .u8(0) // my_team
+        .u8(1) // race_number
+        .u8(10) // nationality
+        .string("Max", 32)
+        .pad_to(1470)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::Participants(p)) = &packet {
+        assert_eq!(p.participants.len(), 24);
+        let part = &p.participants[0];
+        assert_eq!(part.driver_id, 65535);
+        assert_eq!(part.network_id, 7);
+        assert_eq!(part.team_id, 489);
+        assert_eq!(part.race_number, 1);
+        assert_eq!(part.name, "Max");
+    } else {
+        panic!("Expected F1_26 Participants packet");
+    }
+}
+
+#[test]
+fn f1_26_car_status_with_harvest_limit() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 7)
+        .zeros(50) // CarStatusData fields up to ers_harvested_this_lap_mguh
+        .f32(4_000_000.0) // ers_harvest_limit_per_lap
+        .f32(1_500_000.0) // ers_deployed_this_lap
+        .u8(1) // network_paused
+        .pad_to(1445)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::CarStatus(s)) = &packet {
+        assert_eq!(s.car_status_data.len(), 24);
+        let car = &s.car_status_data[0];
+        assert!((car.ers_harvest_limit_per_lap - 4_000_000.0).abs() < 1.0);
+        assert!((car.ers_deployed_this_lap - 1_500_000.0).abs() < 1.0);
+        assert_eq!(car.network_paused, 1);
+    } else {
+        panic!("Expected F1_26 CarStatus packet");
+    }
+}
+
+#[test]
+fn f1_26_car_telemetry2_packet() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 16)
+        .zeros(10) // car 0
+        .u8(1) // car 1: active_aero_mode (straight)
+        .u8(1) // active_aero_available
+        .u16(150) // active_aero_activation_distance
+        .u8(0) // overtake_available
+        .u8(1) // overtake_active
+        .u16(0) // overtake_activation_distance
+        .u8(1) // regulations_2026
+        .u8(0) // driving_wrong_way
+        .pad_to(269)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    assert_eq!(packet.kind(), PacketKind::CarTelemetry2);
+    if let Packet::F1_26(v2026::Packet::CarTelemetry2(t)) = &packet {
+        assert_eq!(t.car_telemetry2_data.len(), 24);
+        let car = &t.car_telemetry2_data[1];
+        assert_eq!(car.active_aero_mode, 1);
+        assert_eq!(car.active_aero_activation_distance, 150);
+        assert_eq!(car.overtake_active, 1);
+        assert_eq!(car.regulations_2026, 1);
+    } else {
+        panic!("Expected F1_26 CarTelemetry2 packet");
+    }
+}
+
+#[test]
+fn f1_26_event_collision_with_severity() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 3)
+        .string("COLL", 4)
+        .u8(3) // vehicle1_idx
+        .u8(23) // vehicle2_idx (24-car grid)
+        .u8(2) // severity (high)
+        .pad_to(45)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::Event(e)) = &packet {
+        assert_eq!(
+            e.event_details,
+            v2026::EventDetails::Collision {
+                vehicle1_idx: 3,
+                vehicle2_idx: 23,
+                severity: 2,
+            }
+        );
+    } else {
+        panic!("Expected F1_26 Event packet");
+    }
+}
+
+#[test]
+fn f1_26_event_partial_mode_enabled() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 3)
+        .string("PMEN", 4)
+        .u8(1) // reason: safety car deployed
+        .pad_to(45)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::Event(e)) = &packet {
+        assert_eq!(
+            e.event_details,
+            v2026::EventDetails::PartialModeEnabled { reason: 1 }
+        );
+    } else {
+        panic!("Expected F1_26 Event packet");
+    }
+}
+
+#[test]
+fn f1_25_rejects_car_telemetry2() {
+    let data = PacketBuilder::new()
+        .header(2025, 25, 16)
+        .pad_to(269)
+        .build();
+
+    assert_eq!(
+        parse_packet(&data).unwrap_err(),
+        ParseError::UnknownPacketId {
+            packet_id: 16,
+            format: 2025,
+        }
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Error cases
 // ---------------------------------------------------------------------------
 
@@ -962,10 +1179,10 @@ fn oversized_datagram_is_accepted() {
 
 #[test]
 fn packet_kind_id_round_trip() {
-    for id in 0..=15u8 {
+    for id in 0..=16u8 {
         assert_eq!(PacketKind::from_id(id).unwrap().id(), id);
     }
-    assert!(PacketKind::from_id(16).is_none());
+    assert!(PacketKind::from_id(17).is_none());
 }
 
 #[test]
@@ -974,6 +1191,7 @@ fn game_version_from_format() {
         (2023, 23, GameVersion::F1_23),
         (2024, 24, GameVersion::F1_24),
         (2025, 25, GameVersion::F1_25),
+        (2026, 26, GameVersion::F1_26),
     ] {
         assert_eq!(GameVersion::from_format(format), Some(version));
         assert_eq!(version.format(), format);

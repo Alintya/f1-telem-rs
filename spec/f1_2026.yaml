@@ -1,0 +1,294 @@
+version:
+  format: 2026
+  year: 26
+  module: v2026
+
+# F1 25 2026 Season Pack. Only differences from F1 25 are listed. Entries
+# replace the parent's by struct name / packet id / event code; new entries
+# are appended.
+extends: f1_2025
+
+consts:
+  cars: 24 # cs_maxNumCarsInUDPData: 22 -> 24
+
+# Packets that change size only through `cars` or a changed struct.
+sizes:
+  0: 1325  # Motion: 24 cars, quantised g-force
+  2: 1399  # LapData: 24 cars
+  4: 1470  # Participants: 24 cars, u16 driver/network/team ids
+  5: 1233  # CarSetups: 24 cars
+  6: 1448  # CarTelemetry: 24 cars, u8 engine temperature
+  7: 1445  # CarStatus: 24 cars, + ers_harvest_limit_per_lap
+  8: 1134  # FinalClassification: 24 cars
+  9: 1062  # LobbyInfo: 24 cars, u16 team id
+  10: 1133 # CarDamage: 24 cars
+  14: 104  # TimeTrial: u16 team id
+  15: 1231 # LapPositions: 50 laps x 24 cars
+
+structs:
+  # g-force components are quantised int16 (divide by 1000)
+  - name: CarMotionData
+    fields:
+      - { name: world_position_x, ty: f32 }
+      - { name: world_position_y, ty: f32 }
+      - { name: world_position_z, ty: f32 }
+      - { name: world_velocity_x, ty: f32 }
+      - { name: world_velocity_y, ty: f32 }
+      - { name: world_velocity_z, ty: f32 }
+      - { name: world_forward_dir_x, ty: i16 }
+      - { name: world_forward_dir_y, ty: i16 }
+      - { name: world_forward_dir_z, ty: i16 }
+      - { name: world_right_dir_x, ty: i16 }
+      - { name: world_right_dir_y, ty: i16 }
+      - { name: world_right_dir_z, ty: i16 }
+      - { name: g_force_lateral, ty: i16, scale: 0.001 }
+      - { name: g_force_longitudinal, ty: i16, scale: 0.001 }
+      - { name: g_force_vertical, ty: i16, scale: 0.001 }
+      - { name: yaw, ty: f32 }
+      - { name: pitch, ty: f32 }
+      - { name: roll, ty: f32 }
+
+  # New: Active Aero and DRS zones in the Session packet
+  - name: ActiveAeroZone
+    fields:
+      - { name: zone_start, ty: f32 }
+      - { name: zone_end, ty: f32 }
+
+  - name: DrsZone
+    fields:
+      - { name: zone_start, ty: f32 }
+      - { name: zone_end, ty: f32 }
+
+  # driver_id, network_id and team_id widen to u16 (65535 = network human / none)
+  - name: ParticipantData
+    fields:
+      - { name: ai_controlled, ty: u8 }
+      - { name: driver_id, ty: u16 }
+      - { name: network_id, ty: u16 }
+      - { name: team_id, ty: u16 }
+      - { name: my_team, ty: u8 }
+      - { name: race_number, ty: u8 }
+      - { name: nationality, ty: u8 }
+      - { name: name, ty: "string(32)" }
+      - { name: your_telemetry, ty: u8 }
+      - { name: show_online_names, ty: u8 }
+      - { name: tech_level, ty: u16 }
+      - { name: platform, ty: u8 }
+      - { name: num_colours, ty: u8 }
+      - { name: livery_colours, ty: "[LiveryColour; 4]" }
+
+  # engine_temperature narrows to u8
+  - name: CarTelemetryData
+    fields:
+      - { name: speed, ty: u16 }
+      - { name: throttle, ty: f32 }
+      - { name: steer, ty: f32 }
+      - { name: brake, ty: f32 }
+      - { name: clutch, ty: u8 }
+      - { name: gear, ty: i8 }
+      - { name: engine_rpm, ty: u16 }
+      - { name: drs, ty: u8 }
+      - { name: rev_lights_percent, ty: u8 }
+      - { name: rev_lights_bit_value, ty: u16 }
+      - { name: brakes_temperature, ty: "[u16; 4]" }
+      - { name: tyres_surface_temperature, ty: "[u8; 4]" }
+      - { name: tyres_inner_temperature, ty: "[u8; 4]" }
+      - { name: engine_temperature, ty: u8 }
+      - { name: tyres_pressure, ty: "[f32; 4]" }
+      - { name: surface_type, ty: "[u8; 4]" }
+
+  # + ers_harvest_limit_per_lap (ers_deploy_mode 3 is now "boost")
+  - name: CarStatusData
+    fields:
+      - { name: traction_control, ty: u8 }
+      - { name: anti_lock_brakes, ty: u8 }
+      - { name: fuel_mix, ty: u8 }
+      - { name: front_brake_bias, ty: u8 }
+      - { name: pit_limiter_status, ty: u8 }
+      - { name: fuel_in_tank, ty: f32 }
+      - { name: fuel_capacity, ty: f32 }
+      - { name: fuel_remaining_laps, ty: f32 }
+      - { name: max_rpm, ty: u16 }
+      - { name: idle_rpm, ty: u16 }
+      - { name: max_gears, ty: u8 }
+      - { name: drs_allowed, ty: u8 }
+      - { name: drs_activation_distance, ty: u16 }
+      - { name: actual_tyre_compound, ty: u8 }
+      - { name: visual_tyre_compound, ty: u8 }
+      - { name: tyres_age_laps, ty: u8 }
+      - { name: vehicle_fia_flags, ty: i8 }
+      - { name: engine_power_ice, ty: f32 }
+      - { name: engine_power_mguk, ty: f32 }
+      - { name: ers_store_energy, ty: f32 }
+      - { name: ers_deploy_mode, ty: u8 }
+      - { name: ers_harvested_this_lap_mguk, ty: f32 }
+      - { name: ers_harvested_this_lap_mguh, ty: f32 }
+      - { name: ers_harvest_limit_per_lap, ty: f32 }
+      - { name: ers_deployed_this_lap, ty: f32 }
+      - { name: network_paused, ty: u8 }
+
+  # team_id widens to u16 (65535 = no team selected)
+  - name: LobbyInfoData
+    fields:
+      - { name: ai_controlled, ty: u8 }
+      - { name: team_id, ty: u16 }
+      - { name: nationality, ty: u8 }
+      - { name: platform, ty: u8 }
+      - { name: name, ty: "string(32)" }
+      - { name: car_number, ty: u8 }
+      - { name: your_telemetry, ty: u8 }
+      - { name: show_online_names, ty: u8 }
+      - { name: tech_level, ty: u16 }
+      - { name: ready_status, ty: u8 }
+
+  # team_id widens to u16
+  - name: TimeTrialDataSet
+    fields:
+      - { name: car_idx, ty: u8 }
+      - { name: team_id, ty: u16 }
+      - { name: lap_time_in_ms, ty: u32 }
+      - { name: sector1_time_in_ms, ty: u32 }
+      - { name: sector2_time_in_ms, ty: u32 }
+      - { name: sector3_time_in_ms, ty: u32 }
+      - { name: traction_control, ty: u8 }
+      - { name: gearbox_assist, ty: u8 }
+      - { name: anti_lock_brakes, ty: u8 }
+      - { name: equal_car_performance, ty: u8 }
+      - { name: custom_setup, ty: u8 }
+      - { name: valid, ty: u8 }
+
+  # New: per-car Active Aero / Overtake Mode data (packet 16)
+  - name: CarTelemetry2Data
+    fields:
+      - { name: active_aero_mode, ty: u8 }
+      - { name: active_aero_available, ty: u8 }
+      - { name: active_aero_activation_distance, ty: u16 }
+      - { name: overtake_available, ty: u8 }
+      - { name: overtake_active, ty: u8 }
+      - { name: overtake_activation_distance, ty: u16 }
+      - { name: regulations_2026, ty: u8 }
+      - { name: driving_wrong_way, ty: u8 }
+
+packets:
+  # 1: Session — 926 bytes (+ Active Aero / DRS zones, start reaction time, assists)
+  - name: Session
+    id: 1
+    size: 926
+    fields:
+      - { name: weather, ty: u8 }
+      - { name: track_temperature, ty: i8 }
+      - { name: air_temperature, ty: i8 }
+      - { name: total_laps, ty: u8 }
+      - { name: track_length, ty: u16 }
+      - { name: session_type, ty: u8 }
+      - { name: track_id, ty: i8 }
+      - { name: formula, ty: u8 }
+      - { name: session_time_left, ty: u16 }
+      - { name: session_duration, ty: u16 }
+      - { name: pit_speed_limit, ty: u8 }
+      - { name: game_paused, ty: u8 }
+      - { name: is_spectating, ty: u8 }
+      - { name: spectator_car_index, ty: u8 }
+      - { name: sli_pro_native_support, ty: u8 }
+      - { name: num_marshal_zones, ty: u8 }
+      - { name: marshal_zones, ty: "[MarshalZone; 21]" }
+      - { name: safety_car_status, ty: u8 }
+      - { name: network_game, ty: u8 }
+      - { name: num_weather_forecast_samples, ty: u8 }
+      - { name: weather_forecast_samples, ty: "[WeatherForecastSample; 64]" }
+      - { name: forecast_accuracy, ty: u8 }
+      - { name: ai_difficulty, ty: u8 }
+      - { name: season_link_identifier, ty: u32 }
+      - { name: weekend_link_identifier, ty: u32 }
+      - { name: session_link_identifier, ty: u32 }
+      - { name: pit_stop_window_ideal_lap, ty: u8 }
+      - { name: pit_stop_window_latest_lap, ty: u8 }
+      - { name: pit_stop_rejoin_position, ty: u8 }
+      - { name: steering_assist, ty: u8 }
+      - { name: braking_assist, ty: u8 }
+      - { name: gearbox_assist, ty: u8 }
+      - { name: pit_assist, ty: u8 }
+      - { name: pit_release_assist, ty: u8 }
+      - { name: ers_assist, ty: u8 }
+      - { name: drs_assist, ty: u8 }
+      - { name: dynamic_racing_line, ty: u8 }
+      - { name: dynamic_racing_line_type, ty: u8 }
+      - { name: game_mode, ty: u8 }
+      - { name: rule_set, ty: u8 }
+      - { name: time_of_day, ty: u32 }
+      - { name: session_length, ty: u8 }
+      - { name: speed_units_lead_player, ty: u8 }
+      - { name: temperature_units_lead_player, ty: u8 }
+      - { name: speed_units_secondary_player, ty: u8 }
+      - { name: temperature_units_secondary_player, ty: u8 }
+      - { name: num_safety_car_periods, ty: u8 }
+      - { name: num_virtual_safety_car_periods, ty: u8 }
+      - { name: num_red_flag_periods, ty: u8 }
+      - { name: equal_car_performance, ty: u8 }
+      - { name: recovery_mode, ty: u8 }
+      - { name: flashback_limit, ty: u8 }
+      - { name: surface_type, ty: u8 }
+      - { name: low_fuel_mode, ty: u8 }
+      - { name: race_starts, ty: u8 }
+      - { name: tyre_temperature, ty: u8 }
+      - { name: pit_lane_tyre_sim, ty: u8 }
+      - { name: car_damage, ty: u8 }
+      - { name: car_damage_rate, ty: u8 }
+      - { name: collisions, ty: u8 }
+      - { name: collisions_off_for_first_lap_only, ty: u8 }
+      - { name: mp_unsafe_pit_release, ty: u8 }
+      - { name: mp_off_for_griefing, ty: u8 }
+      - { name: corner_cutting_stringency, ty: u8 }
+      - { name: parc_ferme_rules, ty: u8 }
+      - { name: pit_stop_experience, ty: u8 }
+      - { name: safety_car, ty: u8 }
+      - { name: safety_car_experience, ty: u8 }
+      - { name: formation_lap, ty: u8 }
+      - { name: formation_lap_experience, ty: u8 }
+      - { name: red_flags, ty: u8 }
+      - { name: affects_licence_level_solo, ty: u8 }
+      - { name: affects_licence_level_mp, ty: u8 }
+      - { name: num_sessions_in_weekend, ty: u8 }
+      - { name: weekend_structure, ty: "[u8; 12]" }
+      - { name: sector2_lap_distance_start, ty: f32 }
+      - { name: sector3_lap_distance_start, ty: f32 }
+      # New in the 2026 Season Pack:
+      - { name: active_aero_track_status, ty: u8 }
+      - { name: num_active_aero_zones_full, ty: u8 }
+      - { name: active_aero_zones_full, ty: "[ActiveAeroZone; 8]" }
+      - { name: num_active_aero_zones_partial, ty: u8 }
+      - { name: active_aero_zones_partial, ty: "[ActiveAeroZone; 8]" }
+      - { name: num_drs_zones, ty: u8 }
+      - { name: drs_zones, ty: "[DrsZone; 4]" }
+      - { name: start_reaction_time, ty: f32 }
+      - { name: anti_lock_brakes_assist, ty: u8 }
+      - { name: traction_control_assist, ty: u8 }
+      - { name: dynamic_racing_line_hi_vis, ty: u8 }
+      - { name: dynamic_racing_line_colour_blind, ty: u8 }
+      - { name: recurring_rewind_prompt, ty: u8 }
+
+  # 16: CarTelemetry2 — 269 bytes (new)
+  - name: CarTelemetry2
+    id: 16
+    size: 269
+    fields:
+      - { name: car_telemetry2_data, ty: "[CarTelemetry2Data; cars]" }
+
+events:
+  # Collision adds severity (0 = low, 1 = medium, 2 = high)
+  - name: Collision
+    code: COLL
+    fields:
+      - { name: vehicle1_idx, ty: u8 }
+      - { name: vehicle2_idx, ty: u8 }
+      - { name: severity, ty: u8 }
+  # Season 8 PDF (v1.2) only: race-control messages for partial mode and
+  # overtake mode. The payload of PMEN is the doc's `PartialModeEnabled`
+  # struct (matched by name); the other three have no documented payload.
+  - name: PartialModeEnabled
+    code: PMEN
+    fields:
+      - { name: reason, ty: u8 } # 0 = wet track, 1 = safety car deployed, 2 = red flag
+  - { name: PartialModeDisabled, code: PMDI }
+  - { name: OvertakeEnabled, code: OVEN }
+  - { name: OvertakeDisabled, code: OVDI }

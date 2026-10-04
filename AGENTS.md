@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`f1-telem` is a zero-dependency, zero-allocation Rust library that parses UDP telemetry datagrams from EA Sports F1 23, F1 24, and F1 25. Packet struct definitions are generated at compile time from YAML specifications via `build.rs`—there is no hand-written decoding logic for individual packet types.
+`f1-telem` is a zero-dependency, zero-allocation Rust library that parses UDP telemetry datagrams from EA Sports F1 23, F1 24, F1 25, and the F1 25 2026 Season Pack (packet format 2026, `v2026`). Packet struct definitions are generated at compile time from YAML specifications via `build.rs`—there is no hand-written decoding logic for individual packet types.
 
 ## Architecture & Data Flow
 
@@ -52,7 +52,7 @@ No linter, formatter config, or CI pipeline is checked in. Use `cargo fmt` and `
 ### Naming
 - Structs: `PascalCase` matching the telemetry spec (e.g., `PacketCarTelemetryData`).
 - Fields: `snake_case`, translated from the C++ `m_` prefix originals (e.g., `m_aiControlled` → `ai_controlled`).
-- Modules: version modules named `v2023`, `v2024`, `v2025`.
+- Modules: version modules named `v2023`, `v2024`, `v2025`, `v2026`.
 
 ### Error Handling
 - Custom `ParseError` enum (`#[non_exhaustive]`) in `src/error.rs` with manual `std::fmt::Display` and `std::error::Error` impls (no `thiserror`/`anyhow`).
@@ -86,6 +86,7 @@ Each `spec/f1_YYYY.yaml` declares:
 - `packets`: `{ name, id, size, fields }`; replace by `id`. The event packet is `{ name: Event, id: 3, size: 45, event_packet: true }` with no fields
 - `events`: `{ name, code, fields }`; replace by `code`. Payload size = event packet size − 29 − 4
 - Field types: `u8 i8 u16 i16 u32 i32 u64 f32 f64`, `string(N)` (→ `FixedStr<N>`), `[T; N]`, struct names. `N` may be a number, a constant, or a product such as `50 * cars`. Nested arrays (`[[T; N]; M]`) are rejected; wrap the inner array in a struct. Event codes must be 4 printable ASCII chars (no quote or backslash).
+- Field option `scale` (integer fields only): marks a quantised value, physical = raw × scale (e.g. 2026 g-force `{ name: g_force_lateral, ty: i16, scale: 0.001 }`). The raw integer is kept; the generated field documents the factor.
 
 ### Adding a Game Version
 Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed structs/packets/events. A packet whose fields change is restated; a packet that only changes size (e.g. through a struct or `consts` change) gets an entry in `sizes`. No Rust changes are needed in the library; `src/bin/listen.rs` needs a `print_vYYYY` arm if it should print the new year.
@@ -102,7 +103,7 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 | `src/error.rs` | `ParseError` enum |
 | `src/bin/listen.rs` | CLI binary: UDP recv → `parse_packet` → formatted stdout |
 | `build.rs` | Codegen: YAML specs → Rust decoder modules, `GameVersion`, `PacketKind`, `Packet` |
-| `spec/f1_2023.yaml` | Base spec (complete); `f1_2024.yaml` and `f1_2025.yaml` extend it as diffs |
+| `spec/f1_2023.yaml` | Base spec (complete); `f1_2024.yaml`, `f1_2025.yaml` and `f1_2026.yaml` (2026 Season Pack) extend it as diffs |
 
 ## Runtime/Tooling Preferences
 
@@ -135,4 +136,4 @@ All packet bytes are synthetically constructed in-memory using a `PacketBuilder`
 - `if let … else { panic!("…") }` for deep destructuring.
 
 ### Coverage
-All 14 base packet types are tested for F1 23. F1 24 and F1 25 tests target additions and structural changes (new packets, new fields, updated events). Error and forward-compatibility paths (unsupported format, unknown packet ID, unknown event code → `EventDetails::Unknown`, invalid UTF-8 names, truncated and oversized buffers) are explicitly tested, as are the generated `GameVersion`/`PacketKind` tables.
+All 14 base packet types are tested for F1 23. F1 24, F1 25 and 2026 tests target additions and structural changes (new packets, new fields, widened/narrowed types, updated events). Error and forward-compatibility paths (unsupported format, unknown packet ID, unknown event code → `EventDetails::Unknown`, invalid UTF-8 names, truncated and oversized buffers) are explicitly tested, as are the generated `GameVersion`/`PacketKind` tables.

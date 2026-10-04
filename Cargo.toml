@@ -2,7 +2,7 @@
 name = "f1-telem"
 version = "0.1.0"
 edition = "2021"
-description = "F1 game UDP telemetry parser supporting F1 23, 24, and 25"
+description = "F1 game UDP telemetry parser supporting F1 23, 24, 25 and the F1 25 2026 Season Pack"
 license = "MIT"
 
 [dependencies]

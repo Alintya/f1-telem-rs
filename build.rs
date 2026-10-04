@@ -71,6 +71,9 @@ struct StructDef {
 struct FieldDef {
     name: String,
     ty: String,
+    /// Quantisation factor for integer fields: physical value = raw * scale.
+    #[serde(default)]
+    scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -293,6 +296,42 @@ fn validate_unique(spec: &ResolvedSpec) {
     );
     check_unique(m, "event code", spec.events.iter().map(|e| e.code.clone()));
     check_unique(m, "event name", spec.events.iter().map(|e| e.name.clone()));
+
+    // `scale` marks a quantised integer: physical value = raw * scale.
+    let owners = spec
+        .structs
+        .iter()
+        .map(|s| (&s.name, &s.fields))
+        .chain(spec.packets.iter().map(|p| (&p.name, &p.fields)))
+        .chain(spec.events.iter().map(|e| (&e.name, &e.fields)));
+    for (owner, fields) in owners {
+        for f in fields.iter().filter(|f| f.scale.is_some()) {
+            let scale = f.scale.unwrap_or_default();
+            let integer = matches!(
+                f.field_type(m, owner),
+                FieldType::U8
+                    | FieldType::I8
+                    | FieldType::U16
+                    | FieldType::I16
+                    | FieldType::U32
+                    | FieldType::I32
+            );
+            if !integer || !scale.is_finite() || scale <= 0.0 {
+                panic!(
+                    "{m}/{owner}.{}: `scale` needs a positive finite value on an integer field up to 32 bits",
+                    f.name
+                );
+            }
+        }
+    }
+}
+
+/// Doc comment line for a generated field, if it carries one.
+fn field_doc(f: &FieldDef, indent: &str) -> String {
+    match f.scale {
+        Some(scale) => format!("{indent}/// Quantised: physical value = raw * {scale:?}.\n"),
+        None => String::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +645,7 @@ fn emit_struct(out: &mut String, module: &str, s: &StructDef) {
     writeln!(out, "    pub struct {} {{", s.name).unwrap();
     for f in &s.fields {
         let ft = f.field_type(module, &s.name);
+        out.push_str(&field_doc(f, "        "));
         writeln!(out, "        pub {}: {},", f.name, ft.rust_type()).unwrap();
     }
     writeln!(out, "    }}").unwrap();
@@ -650,6 +690,7 @@ fn emit_events(
             writeln!(out, "        {} {{", ev.name).unwrap();
             for f in &ev.fields {
                 let ft = f.field_type(module, &ev.name);
+                out.push_str(&field_doc(f, "            "));
                 writeln!(out, "            {}: {},", f.name, ft.rust_type()).unwrap();
             }
             writeln!(out, "        }},").unwrap();
@@ -735,6 +776,7 @@ fn emit_packet_struct(out: &mut String, module: &str, p: &PacketDef) {
     } else {
         for f in &p.fields {
             let ft = f.field_type(module, &p.name);
+            out.push_str(&field_doc(f, "        "));
             writeln!(out, "        pub {}: {},", f.name, ft.rust_type()).unwrap();
         }
     }
