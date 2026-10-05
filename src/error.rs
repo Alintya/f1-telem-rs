@@ -3,6 +3,7 @@ use std::fmt;
 /// All errors that can occur when parsing F1 telemetry packets.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ParseError {
     /// Not enough bytes to complete the read.
     /// Contains the number of bytes needed and the number available.

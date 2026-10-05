@@ -7,6 +7,13 @@ license = "MIT"
 repository = "https://github.com/Alintya/f1-telem-rs"
 
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = "1"
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }

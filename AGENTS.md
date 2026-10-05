@@ -112,8 +112,8 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 
 - **Language:** Rust, edition 2021.
 - **No MSRV** specified.
-- **No runtime dependencies.** Build deps only: `serde`, `serde_yaml` (for `build.rs`).
-- **No feature flags** defined.
+- **No runtime dependencies by default.** Build deps: `serde`, `serde_yaml` (for `build.rs`). Optional runtime dep `serde` behind the `serde` feature.
+- **Feature `serde`:** derives `Serialize`/`Deserialize` on all generated and public data types via `#[cfg_attr(feature = "serde", ...)]` emitted by `build.rs` (`SERDE_DERIVE`); array fields use `crate::serde_support::array` (any length); `FixedStr` has manual impls (lossy string out, NUL-padded/truncated in). Tests: `tests/serde_roundtrip.rs` (`cargo test --features serde`).
 - **No workspace**—single crate.
 - **Package manager:** Cargo (standard).
 

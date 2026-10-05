@@ -2,6 +2,8 @@ pub mod error;
 pub mod fixed_str;
 pub mod header;
 pub mod reader;
+#[cfg(feature = "serde")]
+pub(crate) mod serde_support;
 
 mod generated;
 

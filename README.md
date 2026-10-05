@@ -62,6 +62,16 @@ match parse_packet(data) {
 }
 ```
 
+### Optional `serde` support
+
+Enable the `serde` feature to get `Serialize` and `Deserialize` on every packet type, `common::EventDetails`, `GameVersion`, `PacketKind`, `PacketHeader` and `ParseError`:
+
+```toml
+f1-telem = { path = ".", features = ["serde"] }
+```
+
+Enums use serde's default externally tagged form, e.g. `{"F1_25":{"CarTelemetry":{...}}}` and `"SessionStarted"`. Names (`FixedStr<N>`) serialize as strings; invalid UTF-8 becomes U+FFFD, and on deserialize, over-long strings are truncated to N bytes. Arrays of any length (22/24 cars, 100 laps, …) round-trip. Without the feature the crate has no runtime dependencies.
+
 ### Included listener binary
 
 A simple CLI binary is included that binds a UDP socket and prints decoded packets to stdout. It is written once against the `common` view, so it prints every supported version:

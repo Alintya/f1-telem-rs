@@ -3,6 +3,7 @@ use crate::reader::{Decode, Reader};
 
 /// The 29-byte packet header shared by all F1 telemetry packets across all supported years.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PacketHeader {
     /// The packet format identifier (e.g. 2023, 2024, 2025).
     pub packet_format: u16,

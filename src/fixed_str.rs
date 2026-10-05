@@ -120,6 +120,30 @@ impl<const N: usize> PartialEq<FixedStr<N>> for &str {
     }
 }
 
+/// Serializes as a string: the contents before the first NUL, invalid UTF-8 replaced by `U+FFFD`.
+#[cfg(feature = "serde")]
+impl<const N: usize> serde::Serialize for FixedStr<N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string_lossy())
+    }
+}
+
+/// Deserializes from a string, NUL-padded to `N` bytes. Longer strings are truncated
+/// at the last character boundary that fits, as the game does with long names.
+#[cfg(feature = "serde")]
+impl<'de, const N: usize> serde::Deserialize<'de> for FixedStr<N> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
+        let mut end = s.len().min(N);
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        let mut buf = [0u8; N];
+        buf[..end].copy_from_slice(&s.as_bytes()[..end]);
+        Ok(Self(buf))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +211,33 @@ mod tests {
         let s: FixedStr<8> = padded(b"Max");
         assert_eq!(format!("{s:?}"), "\"Max\"");
         assert_eq!(format!("[{s:>5}]"), "[  Max]");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_serializes_as_lossy_string() {
+        assert_eq!(
+            serde_json::to_string(&padded::<8>(b"Max")).unwrap(),
+            "\"Max\""
+        );
+        let invalid: FixedStr<8> = padded(&[0xFF, b'a']);
+        assert_eq!(serde_json::to_string(&invalid).unwrap(), "\"\u{FFFD}a\"");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_deserializes_nul_padded() {
+        let s: FixedStr<8> = serde_json::from_str("\"Max\"").unwrap();
+        assert_eq!(s.raw(), b"Max\0\0\0\0\0");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_truncates_at_char_boundary() {
+        // '€' is 3 bytes and would straddle the 4-byte limit.
+        let s: FixedStr<4> = serde_json::from_str("\"ab€cd\"").unwrap();
+        assert_eq!(s, "ab");
+        let exact: FixedStr<4> = serde_json::from_str("\"abcd\"").unwrap();
+        assert_eq!(exact, "abcd");
     }
 }

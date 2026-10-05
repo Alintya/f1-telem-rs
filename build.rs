@@ -337,6 +337,37 @@ fn field_doc(f: &FieldDef, indent: &str) -> String {
     }
 }
 
+/// serde derive for every generated data type, active only with the `serde` feature.
+const SERDE_DERIVE: &str =
+    "#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]";
+
+/// serde attribute routing an array field through `crate::serde_support::array`, which
+/// handles any length (serde's built-in array impls stop at 32 elements).
+fn serde_array_attr(indent: &str) -> String {
+    format!(
+        "{indent}#[cfg_attr(feature = \"serde\", serde(with = \"crate::serde_support::array\"))]\n"
+    )
+}
+
+/// [`serde_array_attr`] for array-typed fields, empty for every other type.
+fn serde_field_attr(ft: &FieldType, indent: &str) -> String {
+    match ft {
+        FieldType::PrimArray(..) | FieldType::StructArray(..) => serde_array_attr(indent),
+        _ => String::new(),
+    }
+}
+
+/// The `Unknown { code, payload }` event variant, one field per line so each array
+/// field carries its serde attribute.
+fn unknown_variant(indent: &str, payload: usize) -> String {
+    let field = format!("{indent}    ");
+    format!(
+        "{indent}Unknown {{\n{}{field}code: [u8; 4],\n{}{field}payload: [u8; {payload}],\n{indent}}},\n",
+        serde_array_attr(&field),
+        serde_array_attr(&field),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Type representation parsed from field ty strings
 // ---------------------------------------------------------------------------
@@ -645,10 +676,12 @@ fn generate_module(spec: &ResolvedSpec) -> String {
 
 fn emit_struct(out: &mut String, module: &str, s: &StructDef) {
     writeln!(out, "    #[derive(Debug, Clone, Copy, PartialEq, Default)]").unwrap();
+    writeln!(out, "    {SERDE_DERIVE}").unwrap();
     writeln!(out, "    pub struct {} {{", s.name).unwrap();
     for f in &s.fields {
         let ft = f.field_type(module, &s.name);
         out.push_str(&field_doc(f, "        "));
+        out.push_str(&serde_field_attr(&ft, "        "));
         writeln!(out, "        pub {}: {},", f.name, ft.rust_type()).unwrap();
     }
     writeln!(out, "    }}").unwrap();
@@ -685,6 +718,7 @@ fn emit_events(
     .unwrap();
     writeln!(out, "    #[non_exhaustive]").unwrap();
     writeln!(out, "    #[derive(Debug, Clone, Copy, PartialEq)]").unwrap();
+    writeln!(out, "    {SERDE_DERIVE}").unwrap();
     writeln!(out, "    pub enum EventDetails {{").unwrap();
     for ev in events {
         if ev.fields.is_empty() {
@@ -694,6 +728,7 @@ fn emit_events(
             for f in &ev.fields {
                 let ft = f.field_type(module, &ev.name);
                 out.push_str(&field_doc(f, "            "));
+                out.push_str(&serde_field_attr(&ft, "            "));
                 writeln!(out, "            {}: {},", f.name, ft.rust_type()).unwrap();
             }
             writeln!(out, "        }},").unwrap();
@@ -704,11 +739,7 @@ fn emit_events(
         "        /// An event code this crate does not know; the raw payload is preserved."
     )
     .unwrap();
-    writeln!(
-        out,
-        "        Unknown {{ code: [u8; 4], payload: [u8; {payload}] }},"
-    )
-    .unwrap();
+    out.push_str(&unknown_variant("        ", payload));
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
 
@@ -771,15 +802,18 @@ fn emit_events(
 fn emit_packet_struct(out: &mut String, module: &str, p: &PacketDef) {
     let struct_name = format!("Packet{}", p.name);
     writeln!(out, "    #[derive(Debug, Clone, PartialEq)]").unwrap();
+    writeln!(out, "    {SERDE_DERIVE}").unwrap();
     writeln!(out, "    pub struct {struct_name} {{").unwrap();
     writeln!(out, "        pub header: PacketHeader,").unwrap();
     if p.event_packet {
+        out.push_str(&serde_array_attr("        "));
         writeln!(out, "        pub event_code: [u8; 4],").unwrap();
         writeln!(out, "        pub event_details: EventDetails,").unwrap();
     } else {
         for f in &p.fields {
             let ft = f.field_type(module, &p.name);
             out.push_str(&field_doc(f, "        "));
+            out.push_str(&serde_field_attr(&ft, "        "));
             writeln!(out, "        pub {}: {},", f.name, ft.rust_type()).unwrap();
         }
     }
@@ -830,6 +864,7 @@ fn emit_packet_struct(out: &mut String, module: &str, p: &PacketDef) {
 fn emit_packet_enum(out: &mut String, packets: &[PacketDef], format: u16) {
     writeln!(out, "    #[non_exhaustive]").unwrap();
     writeln!(out, "    #[derive(Debug, Clone, PartialEq)]").unwrap();
+    writeln!(out, "    {SERDE_DERIVE}").unwrap();
     writeln!(out, "    #[allow(clippy::large_enum_variant)]").unwrap();
     writeln!(out, "    pub enum Packet {{").unwrap();
     for p in packets {
@@ -928,6 +963,7 @@ fn emit_crate_items(out: &mut String, specs: &[ResolvedSpec]) {
     .unwrap();
     writeln!(out, "#[non_exhaustive]").unwrap();
     writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
+    writeln!(out, "{SERDE_DERIVE}").unwrap();
     writeln!(out, "pub enum GameVersion {{").unwrap();
     for s in specs {
         writeln!(out, "    {},", variant(&s.version)).unwrap();
@@ -1042,6 +1078,7 @@ fn emit_crate_items(out: &mut String, specs: &[ResolvedSpec]) {
     .unwrap();
     writeln!(out, "#[non_exhaustive]").unwrap();
     writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
+    writeln!(out, "{SERDE_DERIVE}").unwrap();
     writeln!(out, "pub enum PacketKind {{").unwrap();
     for (name, versions) in kinds.values() {
         writeln!(out, "    /// Present in: {}.", versions.join(", ")).unwrap();
@@ -1079,6 +1116,7 @@ fn emit_crate_items(out: &mut String, specs: &[ResolvedSpec]) {
     .unwrap();
     writeln!(out, "#[non_exhaustive]").unwrap();
     writeln!(out, "#[derive(Debug, Clone, PartialEq)]").unwrap();
+    writeln!(out, "{SERDE_DERIVE}").unwrap();
     writeln!(out, "#[allow(clippy::large_enum_variant)]").unwrap();
     writeln!(out, "pub enum Packet {{").unwrap();
     for s in specs {
@@ -1656,6 +1694,7 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
     .unwrap();
     writeln!(out, "    #[non_exhaustive]").unwrap();
     writeln!(out, "    #[derive(Debug, Clone, Copy, PartialEq)]").unwrap();
+    writeln!(out, "    {SERDE_DERIVE}").unwrap();
     writeln!(out, "    pub enum EventDetails {{").unwrap();
     for ((ev, fs), om) in evs.iter().zip(&fields).zip(&omitted) {
         writeln!(
@@ -1687,11 +1726,7 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
         writeln!(out, "        }},").unwrap();
     }
     writeln!(out, "        /// An event code unknown to the decoding version; payload zero-padded to {max_payload} bytes.").unwrap();
-    writeln!(
-        out,
-        "        Unknown {{ code: [u8; 4], payload: [u8; {max_payload}] }},"
-    )
-    .unwrap();
+    out.push_str(&unknown_variant("        ", max_payload));
     writeln!(out, "    }}\n").unwrap();
 
     for (si, payload) in &payloads {
@@ -1803,6 +1838,11 @@ fn emit_common(out: &mut String, specs: &[ResolvedSpec]) {
     writeln!(out).unwrap();
     writeln!(out, "    /// Associated type for struct fields that a version does not have; never constructed.").unwrap();
     writeln!(out, "    #[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
+    writeln!(
+        out,
+        "    #[cfg_attr(feature = \"serde\", derive(serde::Serialize))]"
+    )
+    .unwrap();
     writeln!(out, "    pub enum Absent {{}}\n").unwrap();
 
     // Structs, in first-seen order.
