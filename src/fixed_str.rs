@@ -128,19 +128,34 @@ impl<const N: usize> serde::Serialize for FixedStr<N> {
     }
 }
 
-/// Deserializes from a string, NUL-padded to `N` bytes. Longer strings are truncated
-/// at the last character boundary that fits, as the game does with long names.
+/// Deserializes from a string without allocating: the bytes before the first NUL are
+/// copied into the buffer and the rest is NUL-padded. Strings longer than `N` bytes are
+/// truncated at the last character boundary that fits, as the game does with long names.
 #[cfg(feature = "serde")]
 impl<'de, const N: usize> serde::Deserialize<'de> for FixedStr<N> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = <std::borrow::Cow<'de, str>>::deserialize(deserializer)?;
-        let mut end = s.len().min(N);
-        while !s.is_char_boundary(end) {
-            end -= 1;
+        struct FixedStrVisitor<const N: usize>;
+
+        impl<const N: usize> serde::de::Visitor<'_> for FixedStrVisitor<N> {
+            type Value = FixedStr<N>;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "a string of at most {N} bytes")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<FixedStr<N>, E> {
+                let content = s.split('\0').next().unwrap_or_default();
+                let mut end = content.len().min(N);
+                while !content.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let mut buf = [0u8; N];
+                buf[..end].copy_from_slice(&content.as_bytes()[..end]);
+                Ok(FixedStr(buf))
+            }
         }
-        let mut buf = [0u8; N];
-        buf[..end].copy_from_slice(&s.as_bytes()[..end]);
-        Ok(Self(buf))
+
+        deserializer.deserialize_str(FixedStrVisitor::<N>)
     }
 }
 
@@ -239,5 +254,22 @@ mod tests {
         assert_eq!(s, "ab");
         let exact: FixedStr<4> = serde_json::from_str("\"abcd\"").unwrap();
         assert_eq!(exact, "abcd");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_stops_at_interior_nul() {
+        let s: FixedStr<8> = serde_json::from_str("\"Ma\\u0000x\"").unwrap();
+        assert_eq!(s.raw(), b"Ma\0\0\0\0\0\0");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_rejects_non_strings() {
+        let err = serde_json::from_str::<FixedStr<8>>("42").unwrap_err();
+        assert!(
+            err.to_string().contains("a string of at most 8 bytes"),
+            "{err}"
+        );
     }
 }

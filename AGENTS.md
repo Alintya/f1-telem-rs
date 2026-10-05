@@ -16,7 +16,8 @@ src/lib.rs  ──► parse_packet(&[u8]) -> Result<Packet, ParseError>
        ├─ header.rs    – 29-byte PacketHeader (hand-written), parse_header()
        ├─ reader.rs    – Reader cursor + `Decode` trait: little-endian, no-alloc
        ├─ fixed_str.rs – FixedStr<N>: inline NUL-padded string, UTF-8 checked lazily
-       └─ error.rs     – ParseError enum (manual Display/Error impls)
+       ├─ error.rs     – ParseError enum (manual Display/Error impls)
+       └─ serde_support.rs – (feature `serde`) any-length array (de)serialization for generated fields
 ```
 
 **Runtime parse path:**
@@ -62,8 +63,8 @@ No linter, formatter config, or CI pipeline is checked in. Use `cargo fmt` and `
 - Variants: `BufferTooShort`, `UnsupportedFormat(u16)`, `UnknownPacketId { packet_id, format }`, `SizeMismatch`.
 - Unknown event codes are not errors: they decode to `EventDetails::Unknown { code, payload }`. Invalid UTF-8 in names is not an error: `FixedStr::as_str()` reports it on access.
 
-### No External Runtime Dependencies
-- Zero crate dependencies at runtime. `serde` and `serde_yaml` are build-dependencies only.
+### No External Runtime Dependencies (by default)
+- Zero crate dependencies at runtime in the default build. `serde` and `serde_yaml` are build-dependencies; `serde` is additionally an optional runtime dependency behind the `serde` feature (see Runtime/Tooling Preferences).
 - No async runtime—the listen binary uses blocking `std::net::UdpSocket`.
 - No unsafe code or FFI.
 
@@ -104,6 +105,7 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 | `src/fixed_str.rs` | `FixedStr<N>` inline string type for name fields |
 | `src/header.rs` | `PacketHeader` struct, `parse_header()`, `HEADER_SIZE` constant (29) |
 | `src/error.rs` | `ParseError` enum |
+| `src/serde_support.rs` | Feature `serde` only: `array` helper used via `#[serde(with)]` by generated array fields |
 | `src/bin/listen.rs` | CLI binary: UDP recv → `parse_packet` → one `common::PacketVisitor` printer for all versions |
 | `build.rs` | Codegen: YAML specs → version modules, `common` view, `GameVersion`, `PacketKind`, `Packet` |
 | `spec/f1_2023.yaml` | Base spec (complete); `f1_2024.yaml`, `f1_2025.yaml` and `f1_2026.yaml` (2026 Season Pack) extend it as diffs |
@@ -121,10 +123,10 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 
 ### Test Structure
 - **Unit tests:** Inline `#[cfg(test)] mod tests` in `src/header.rs`, `src/reader.rs`, and `src/fixed_str.rs`.
-- **Integration tests:** `tests/packet_parse.rs`—imports `f1_telem::*` and exercises the public `parse_packet` API.
+- **Integration tests:** `tests/packet_parse.rs`—imports `f1_telem::*` and exercises the public `parse_packet` API. `tests/serde_roundtrip.rs` (compiled only with `--features serde`) checks the JSON shape and round-trips of parsed packets.
 
 ### Test Data
-All packet bytes are synthetically constructed in-memory using a `PacketBuilder` helper defined in the test file. Methods: `.header()`, `.u8()`, `.u16()`, `.u32()`, `.u64()`, `.i8()`, `.f32()`, `.string()`, `.zeros()`, `.pad_to()`. No external fixture files.
+Packet bytes are synthetically constructed in-memory. `tests/packet_parse.rs` uses its `PacketBuilder` helper (methods: `.header()`, `.u8()`, `.u16()`, `.u32()`, `.u64()`, `.i8()`, `.f32()`, `.string()`, `.zeros()`, `.pad_to()`); `tests/serde_roundtrip.rs` uses its own minimal `header()`/`padded()` helpers. No external fixture files.
 
 ### Naming Convention
 - Standard packets: `f1_YY_<packet_type>` (e.g., `f1_23_motion_packet`)
