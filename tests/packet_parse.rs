@@ -965,6 +965,31 @@ fn f1_26_participants_with_u16_ids() {
 }
 
 #[test]
+fn f1_26_car_telemetry_with_u8_engine_temperature() {
+    let data = PacketBuilder::new()
+        .header(2026, 26, 6)
+        .u16(300) // speed
+        .zeros(36) // throttle .. tyres_inner_temperature
+        .u8(105) // engine_temperature (u8 in 2026, u16 before)
+        .f32(23.5) // tyres_pressure[0]
+        .pad_to(1448)
+        .build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::CarTelemetry(t)) = &packet {
+        let car = &t.car_telemetry_data[0];
+        assert_eq!(t.car_telemetry_data.len(), 24);
+        assert_eq!(car.speed, 300);
+        assert_eq!(car.engine_temperature, 105u8);
+        assert!((car.tyres_pressure[0] - 23.5).abs() < 0.001);
+        // The common view widens it to the u16 earlier versions send.
+        assert_eq!(common::CarTelemetryData::engine_temperature(car), 105u16);
+    } else {
+        panic!("Expected F1_26 CarTelemetry packet");
+    }
+}
+
+#[test]
 fn f1_26_car_status_with_harvest_limit() {
     let data = PacketBuilder::new()
         .header(2026, 26, 7)
@@ -1184,6 +1209,7 @@ struct Recorder {
     cars: usize,
     g_force_lateral: f32,
     team_id: Option<u16>,
+    name: Option<String>,
     has_livery: Option<bool>,
     harvest_limit: Option<Option<f32>>,
     event: Option<common::EventDetails>,
@@ -1201,6 +1227,7 @@ impl common::PacketVisitor for Recorder {
         use common::ParticipantData;
         let first = &p.participants()[0];
         self.team_id = Some(first.team_id());
+        self.name = Some(first.name().into_owned());
         self.has_livery = Some(first.livery_colours().is_some());
     }
 
@@ -1251,6 +1278,8 @@ fn common_team_id_widens_and_livery_is_optional() {
         .u8(0) // driver_id
         .u8(0) // network_id
         .u8(255) // team_id (u8)
+        .zeros(3) // my_team, race_number, nationality
+        .string("Lewis", 48)
         .pad_to(1306)
         .build();
     let f1_26 = PacketBuilder::new()
@@ -1260,13 +1289,17 @@ fn common_team_id_widens_and_livery_is_optional() {
         .u16(0)
         .u16(0)
         .u16(489) // team_id (u16)
+        .zeros(3)
+        .string("Max", 32)
         .pad_to(1470)
         .build();
 
     let (a, b) = (record(&f1_23), record(&f1_26));
     assert_eq!(a.team_id, Some(255));
+    assert_eq!(a.name.as_deref(), Some("Lewis"));
     assert_eq!(a.has_livery, Some(false));
     assert_eq!(b.team_id, Some(489));
+    assert_eq!(b.name.as_deref(), Some("Max"));
     assert_eq!(b.has_livery, Some(true));
 }
 

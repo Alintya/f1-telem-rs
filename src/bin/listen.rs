@@ -52,10 +52,17 @@ fn secs(ms: u32) -> f64 {
     f64::from(ms) / 1000.0
 }
 
-/// Sector time from either the single-field (F1 23) or minutes + ms (F1 24+) layout.
-fn sector_secs(ms: Option<u16>, ms_part: Option<u16>, minutes_part: Option<u8>) -> f64 {
-    let ms = ms.or(ms_part).map_or(0, u32::from);
-    secs(ms + u32::from(minutes_part.unwrap_or(0)) * 60_000)
+/// Sector time from F1 23's `sectorN_time_in_ms` + `sectorN_time_minutes` or F1 24+'s
+/// `sectorN_time_ms_part` + `sectorN_time_minutes_part`; each version sends one pair.
+fn sector_secs(ms: Option<u16>, minutes: Option<u8>) -> f64 {
+    let ms = ms.map_or(0, u32::from);
+    secs(ms + u32::from(minutes.unwrap_or(0)) * 60_000)
+}
+
+/// `[a,b,c,d]` with fixed precision, for per-wheel values.
+fn wheels(values: &[f32; 4], precision: usize) -> String {
+    let parts: Vec<String> = values.iter().map(|v| format!("{v:.precision$}")).collect();
+    format!("[{}]", parts.join(","))
 }
 
 /// Prints every packet kind through the version-independent `common` traits,
@@ -85,7 +92,7 @@ impl PacketVisitor for Printer {
 
     fn session<P: PacketSession>(&mut self, p: &P) {
         println!(
-            "  track={} type={} laps={} weather={} temp={}°C air={}°C formula={} safety_car={}{}",
+            "  track={} type={} laps={} weather={} temp={}°C air={}°C formula={} safety_car={}{}{}",
             p.track_id(),
             p.session_type(),
             p.total_laps(),
@@ -94,6 +101,7 @@ impl PacketVisitor for Printer {
             p.air_temperature(),
             p.formula(),
             p.safety_car_status(),
+            opt("weekend_sessions", p.num_sessions_in_weekend()),
             opt(
                 "start_reaction",
                 p.start_reaction_time().map(|t| format!("{t:.3}s"))
@@ -119,7 +127,7 @@ impl PacketVisitor for Printer {
                 continue;
             }
             println!(
-                "  car[{i}] P{} lap={} last={:.3}s cur={:.3}s dist={:.0}m pit={} status={}",
+                "  car[{i}] P{} lap={} last={:.3}s cur={:.3}s dist={:.0}m pit={} status={}{}",
                 l.car_position(),
                 l.current_lap_num(),
                 secs(l.last_lap_time_in_ms()),
@@ -127,6 +135,10 @@ impl PacketVisitor for Printer {
                 l.lap_distance(),
                 l.pit_status(),
                 l.result_status(),
+                opt(
+                    "speed_trap",
+                    l.speed_trap_fastest_speed().map(|s| format!("{s:.1}kph"))
+                ),
             );
         }
     }
@@ -147,12 +159,16 @@ impl PacketVisitor for Printer {
             }
             EventDetails::DrsDisabled { reason } => println!(" DrsDisabled{}", opt("reason", reason)),
             EventDetails::Penalty {
-                vehicle_idx,
                 penalty_type,
                 infringement_type,
+                vehicle_idx,
+                other_vehicle_idx,
                 time,
-                ..
-            } => println!(" Penalty car={vehicle_idx} type={penalty_type} infr={infringement_type} time={time}s"),
+                lap_num,
+                places_gained,
+            } => println!(
+                " Penalty car={vehicle_idx} other={other_vehicle_idx} type={penalty_type} infr={infringement_type} time={time}s lap={lap_num} places={places_gained}"
+            ),
             EventDetails::SpeedTrap { vehicle_idx, speed, .. } => {
                 println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph");
             }
@@ -215,11 +231,15 @@ impl PacketVisitor for Printer {
                 continue;
             }
             println!(
-                "  car[{i}] wing={}/{} brake_bias={}% fuel={:.1}kg{}",
+                "  car[{i}] wing={}/{} brake_bias={}% fuel={:.1}kg tyre_psi=[{:.1},{:.1},{:.1},{:.1}]{}",
                 s.front_wing(),
                 s.rear_wing(),
                 s.brake_bias(),
                 s.fuel_load(),
+                s.rear_left_tyre_pressure(),
+                s.rear_right_tyre_pressure(),
+                s.front_left_tyre_pressure(),
+                s.front_right_tyre_pressure(),
                 opt("engine_braking", s.engine_braking()),
             );
         }
@@ -271,7 +291,7 @@ impl PacketVisitor for Printer {
                 continue;
             }
             println!(
-                "  [{i}] P{} laps={} grid={} pts={} pits={} best={:.3}s total={:.3}s status={}{}",
+                "  [{i}] P{} laps={} grid={} pts={} pits={} best={:.3}s total={:.3}s penalties={}x/{}s status={}{}",
                 c.position(),
                 c.num_laps(),
                 c.grid_position(),
@@ -279,6 +299,8 @@ impl PacketVisitor for Printer {
                 c.num_pit_stops(),
                 secs(c.best_lap_time_in_ms()),
                 c.total_race_time(),
+                c.num_penalties(),
+                c.penalties_time(),
                 c.result_status(),
                 opt("reason", c.result_reason()),
             );
@@ -342,19 +364,16 @@ impl PacketVisitor for Printer {
                 "    lap[{i}] {:.3}s s1={:.3}s s2={:.3}s s3={:.3}s valid=0x{:02x}",
                 secs(l.lap_time_in_ms()),
                 sector_secs(
-                    l.sector1_time_in_ms(),
-                    l.sector1_time_ms_part(),
-                    l.sector1_time_minutes_part()
+                    l.sector1_time_in_ms().or(l.sector1_time_ms_part()),
+                    l.sector1_time_minutes().or(l.sector1_time_minutes_part())
                 ),
                 sector_secs(
-                    l.sector2_time_in_ms(),
-                    l.sector2_time_ms_part(),
-                    l.sector2_time_minutes_part()
+                    l.sector2_time_in_ms().or(l.sector2_time_ms_part()),
+                    l.sector2_time_minutes().or(l.sector2_time_minutes_part())
                 ),
                 sector_secs(
-                    l.sector3_time_in_ms(),
-                    l.sector3_time_ms_part(),
-                    l.sector3_time_minutes_part()
+                    l.sector3_time_in_ms().or(l.sector3_time_ms_part()),
+                    l.sector3_time_minutes().or(l.sector3_time_minutes_part())
                 ),
                 l.lap_valid_bit_flags(),
             );
@@ -393,15 +412,33 @@ impl PacketVisitor for Printer {
             opt("chassis_yaw", p.chassis_yaw().map(|v| format!("{v:.3}"))),
             opt("chassis_pitch", p.chassis_pitch().map(|v| format!("{v:.3}"))),
         );
+        if let (Some(fa), Some(ra), Some(fr), Some(rr)) = (
+            p.front_aero_height(),
+            p.rear_aero_height(),
+            p.front_roll_angle(),
+            p.rear_roll_angle(),
+        ) {
+            println!("  aero_h={fa:.3}/{ra:.3} roll={fr:.3}/{rr:.3}");
+        }
+        if let (Some(camber), Some(gain)) = (p.wheel_camber(), p.wheel_camber_gain()) {
+            println!("  camber={} gain={}", wheels(camber, 3), wheels(gain, 3));
+        }
     }
 
     fn time_trial<P: PacketTimeTrial>(&mut self, p: &P) {
-        println!(
-            "  session_best={:.3}s PB={:.3}s rival={:.3}s",
-            secs(p.player_session_best_data_set().lap_time_in_ms()),
-            secs(p.personal_best_data_set().lap_time_in_ms()),
-            secs(p.rival_data_set().lap_time_in_ms()),
-        );
+        for (label, d) in [
+            ("session_best", p.player_session_best_data_set()),
+            ("personal_best", p.personal_best_data_set()),
+            ("rival", p.rival_data_set()),
+        ] {
+            println!(
+                "  {label}: car={} team={} {:.3}s valid={}",
+                d.car_idx(),
+                d.team_id(),
+                secs(d.lap_time_in_ms()),
+                d.valid(),
+            );
+        }
     }
 
     fn lap_positions<P: PacketLapPositions>(&mut self, p: &P) {

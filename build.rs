@@ -329,7 +329,10 @@ fn validate_unique(spec: &ResolvedSpec) {
 /// Doc comment line for a generated field, if it carries one.
 fn field_doc(f: &FieldDef, indent: &str) -> String {
     match f.scale {
-        Some(scale) => format!("{indent}/// Quantised: physical value = raw * {scale:?}.\n"),
+        Some(scale) => format!(
+            "{indent}/// Quantised: physical value = raw {}.\n",
+            scale_op(scale)
+        ),
         None => String::new(),
     }
 }
@@ -1284,7 +1287,7 @@ impl CommonTy {
                 let src = Num::of(ft).expect("unify only yields Num for numeric fields");
                 let t = target.rust();
                 match (scale, *target) {
-                    (Some(s), _) => format!("({expr} as {t}) * {s:?}"),
+                    (Some(s), _) => format!("({expr} as {t}) {}", scale_op(s)),
                     (None, _) if src == *target => expr.to_string(),
                     (None, Num::Float { .. }) if matches!(src, Num::Float { .. }) => {
                         format!("{t}::from({expr})")
@@ -1299,6 +1302,18 @@ impl CommonTy {
             }
             _ => format!("&{expr}"),
         }
+    }
+}
+
+/// The arithmetic applying a quantisation factor: `/ 1000.0` when the factor is the
+/// reciprocal of an integer (matching EA's "divide by N" wording exactly, since e.g.
+/// 0.001 is not representable in binary), otherwise `* factor`.
+fn scale_op(scale: f64) -> String {
+    let divisor = (1.0 / scale).round();
+    if divisor > 1.0 && (divisor * scale - 1.0).abs() < 1e-12 {
+        format!("/ {divisor:?}")
+    } else {
+        format!("* {scale:?}")
     }
 }
 
@@ -1382,12 +1397,15 @@ struct CommonField {
     optional: bool,
 }
 
-/// Union of an owner's fields over the versions that define it, in first-seen order.
+/// Union of an owner's fields over the versions that define it, in first-seen order,
+/// plus the names of fields left out because `accept` rejects them or their types
+/// cannot be reconciled. Each omission is reported as a cargo warning.
 fn common_fields(
     specs: &[ResolvedSpec],
     owner: &str,
     defs: &[(usize, &[FieldDef])],
-) -> Vec<CommonField> {
+    accept: impl Fn(&CommonTy) -> bool,
+) -> (Vec<CommonField>, Vec<String>) {
     let mut merged: Vec<(String, Vec<Occurrence>)> = Vec::new();
     for (si, fields) in defs {
         let module = &specs[*si].version.module;
@@ -1399,18 +1417,37 @@ fn common_fields(
             }
         }
     }
-    merged
-        .into_iter()
-        .filter_map(|(name, occ)| {
-            let ty = unify(&occ)?;
-            Some(CommonField {
+    let mut kept = Vec::new();
+    let mut omitted = Vec::new();
+    for (name, occ) in merged {
+        match unify(&occ).filter(&accept) {
+            Some(ty) => kept.push(CommonField {
                 optional: occ.len() < defs.len(),
                 name,
                 ty,
                 occ,
-            })
-        })
-        .collect()
+            }),
+            None => {
+                println!(
+                    "cargo::warning=common::{owner}.{name} omitted: its types differ across versions; use the version-specific types"
+                );
+                omitted.push(name);
+            }
+        }
+    }
+    (kept, omitted)
+}
+
+/// Doc line listing fields only available on the version-specific types.
+fn omitted_doc(indent: &str, omitted: &[String]) -> String {
+    if omitted.is_empty() {
+        return String::new();
+    }
+    let names: Vec<String> = omitted.iter().map(|n| format!("`{n}`")).collect();
+    format!(
+        "{indent}///\n{indent}/// Not exposed here because their types differ across versions (use the\n{indent}/// version-specific types): {}.\n",
+        names.join(", ")
+    )
 }
 
 fn version_label(v: &VersionInfo) -> String {
@@ -1449,7 +1486,7 @@ fn emit_common_trait(
     defs: &[(usize, &[FieldDef])],
     packet: bool,
 ) {
-    let fields = common_fields(specs, owner, defs);
+    let (fields, omitted) = common_fields(specs, owner, defs, |_| true);
     let assoc: BTreeSet<&str> = fields
         .iter()
         .filter_map(|f| match &f.ty {
@@ -1472,6 +1509,7 @@ fn emit_common_trait(
         present_in(specs, defs.iter().map(|d| d.0))
     )
     .unwrap();
+    out.push_str(&omitted_doc("    ", &omitted));
     writeln!(out, "    pub trait {concrete} {{").unwrap();
     for a in &assoc {
         writeln!(out, "        type {a}: {a};").unwrap();
@@ -1602,17 +1640,14 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
         return;
     };
     // Only scalar event fields are representable in a `Copy` enum shared across versions.
-    let fields: Vec<Vec<CommonField>> = evs
+    let (fields, omitted): (Vec<Vec<CommonField>>, Vec<Vec<String>>) = evs
         .iter()
         .map(|ev| {
             let defs: Vec<(usize, &[FieldDef])> =
                 ev.defs.iter().map(|(si, e)| (*si, &e.fields[..])).collect();
-            common_fields(specs, &ev.name, &defs)
-                .into_iter()
-                .filter(|f| matches!(f.ty, CommonTy::Num(_)))
-                .collect()
+            common_fields(specs, &ev.name, &defs, |ty| matches!(ty, CommonTy::Num(_)))
         })
-        .collect();
+        .unzip();
 
     writeln!(
         out,
@@ -1622,7 +1657,7 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
     writeln!(out, "    #[non_exhaustive]").unwrap();
     writeln!(out, "    #[derive(Debug, Clone, Copy, PartialEq)]").unwrap();
     writeln!(out, "    pub enum EventDetails {{").unwrap();
-    for (ev, fs) in evs.iter().zip(&fields) {
+    for ((ev, fs), om) in evs.iter().zip(&fields).zip(&omitted) {
         writeln!(
             out,
             "        /// `{}`. Present in: {}.",
@@ -1630,6 +1665,7 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
             present_in(specs, ev.defs.iter().map(|d| d.0))
         )
         .unwrap();
+        out.push_str(&omitted_doc("        ", om));
         if fs.is_empty() {
             writeln!(out, "        {},", ev.name).unwrap();
             continue;
@@ -1761,6 +1797,8 @@ fn emit_common(out: &mut String, specs: &[ResolvedSpec]) {
     )
     .unwrap();
     writeln!(out, "pub mod common {{").unwrap();
+    writeln!(out, "    #[allow(unused_imports)]").unwrap();
+    writeln!(out, "    use crate::fixed_str::FixedStr;").unwrap();
     writeln!(out, "    use crate::header::PacketHeader;").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "    /// Associated type for struct fields that a version does not have; never constructed.").unwrap();
