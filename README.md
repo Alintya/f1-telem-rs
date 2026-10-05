@@ -77,9 +77,19 @@ Enums use serde's default externally tagged form, e.g. `{"F1_25":{"CarTelemetry"
 A simple CLI binary is included that binds a UDP socket and prints decoded packets to stdout. It is written once against the `common` view, so it prints every supported version:
 
 ```sh
-cargo run                        # listens on 0.0.0.0:20777
-cargo run -- 192.168.1.50:20777  # custom bind address
+cargo run                                  # listens on 0.0.0.0:20777
+cargo run -- 192.168.1.50:20777            # custom bind address
+cargo run -- --record session.f1cap        # also save every datagram to a capture
+cargo run -- --replay session.f1cap        # print a capture instead of listening
 ```
+
+### Testing with the game
+
+In the game's telemetry settings, turn UDP telemetry on, set the IP to the machine running the listener (`127.0.0.1` on the same PC) and port 20777, pick the UDP format to test, and set "Your Telemetry" to Public so other cars' status and damage are not zeroed. Allow `f1-listen` through the firewall for inbound UDP.
+
+Record a session with `--record`, covering what you want checked (Time Trial for packet 14, a finished race for final classification and lap positions, an online lobby for lobby info). Recording happens before parsing, so datagrams the parser rejects are kept, and each datagram is flushed, so stopping with Ctrl+C is safe. Put the file in `tests/captures/` (extension `.f1cap`) and `cargo test` replays it: `tests/captures.rs` fails on any parse error, any datagram longer than its declared size, and any event code the spec does not know, grouped by format and packet id. Captures grow by roughly 0.1–0.4 MB per second of driving depending on the send rate, so `tests/captures/` is git-ignored: recordings stay local to the machine that made them.
+
+The capture format (`src/bin/listen/capture.rs`, private to the listener and tests, not part of the library API) is an 8-byte signature `F1TCAP01`, then for every datagram a little-endian `u16` length and its bytes.
 
 ## Supported packet types
 

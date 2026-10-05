@@ -1,21 +1,100 @@
 use std::fmt::{self, Debug, Display};
+use std::fs::File;
+use std::io::BufWriter;
 use std::net::UdpSocket;
+use std::process::ExitCode;
 
+#[path = "listen/capture.rs"]
+mod capture;
+
+use capture::CaptureWriter;
 use f1_telem::common::*;
 use f1_telem::{parse_packet, Packet};
 
-fn main() {
-    let addr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:20777".into());
+const USAGE: &str = "usage: f1-listen [ADDR] [--record FILE]\n       f1-listen --replay FILE\n\nADDR defaults to 0.0.0.0:20777. --record saves every received datagram to FILE\n(capture format: src/bin/listen/capture.rs); --replay prints a capture instead of listening.";
 
-    let socket = UdpSocket::bind(&addr).unwrap_or_else(|e| {
-        eprintln!("failed to bind {addr}: {e}");
-        std::process::exit(1);
-    });
+enum Mode {
+    Listen {
+        addr: String,
+        record: Option<String>,
+    },
+    Replay(String),
+    Help,
+}
+
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Mode, String> {
+    let mut addr = None;
+    let mut record = None;
+    let mut replay = None;
+    while let Some(arg) = args.next() {
+        let slot = match arg.as_str() {
+            "-h" | "--help" => return Ok(Mode::Help),
+            "--record" => &mut record,
+            "--replay" => &mut replay,
+            flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
+            _ if addr.is_none() => {
+                addr = Some(arg);
+                continue;
+            }
+            _ => return Err(format!("unexpected argument {arg}")),
+        };
+        let value = args
+            .next()
+            .filter(|v| !v.starts_with('-'))
+            .ok_or(format!("{arg} needs a FILE"))?;
+        if slot.replace(value).is_some() {
+            return Err(format!("{arg} given twice"));
+        }
+    }
+    match (replay, addr, record) {
+        (Some(file), None, None) => Ok(Mode::Replay(file)),
+        (Some(_), _, _) => Err("--replay takes no ADDR or --record".into()),
+        (None, addr, record) => Ok(Mode::Listen {
+            addr: addr.unwrap_or_else(|| "0.0.0.0:20777".into()),
+            record,
+        }),
+    }
+}
+
+fn main() -> ExitCode {
+    let result = match parse_args(std::env::args().skip(1)) {
+        Ok(Mode::Listen { addr, record }) => listen(&addr, record.as_deref()),
+        Ok(Mode::Replay(file)) => replay(&file),
+        Ok(Mode::Help) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(msg) => {
+            eprintln!("{msg}\n\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn listen(addr: &str, record: Option<&str>) -> Result<(), String> {
+    let socket = UdpSocket::bind(addr).map_err(|e| format!("failed to bind {addr}: {e}"))?;
+    let mut recorder = match record {
+        Some(path) => {
+            let file = File::create(path).map_err(|e| format!("failed to create {path}: {e}"))?;
+            let writer = CaptureWriter::new(BufWriter::new(file))
+                .map_err(|e| format!("failed to write {path}: {e}"))?;
+            eprintln!("recording to {path}");
+            Some((path, writer))
+        }
+        None => None,
+    };
     eprintln!("listening on {addr}");
 
-    let mut buf = [0u8; 2048];
+    // Large enough for any UDP datagram, so nothing is truncated before it is recorded
+    // (the capture format's u16 length covers the same range).
+    let mut buf = vec![0u8; usize::from(u16::MAX)];
     loop {
         let (len, src) = match socket.recv_from(&mut buf) {
             Ok(v) => v,
@@ -24,15 +103,49 @@ fn main() {
                 continue;
             }
         };
-
-        match parse_packet(&buf[..len]) {
+        let datagram = &buf[..len];
+        // Record before parsing so datagrams the parser rejects are kept too.
+        if let Some((path, w)) = &mut recorder {
+            // Flush per datagram: Ctrl+C then loses at most the datagram being written.
+            w.write(datagram)
+                .and_then(|()| w.flush())
+                .map_err(|e| format!("failed to write {path}: {e}"))?;
+        }
+        match parse_packet(datagram) {
             Ok(packet) => print_packet(&packet, src, len),
             Err(e) => eprintln!("[{src}] parse error ({len} bytes): {e}"),
         }
     }
 }
 
-fn print_packet(packet: &Packet, src: std::net::SocketAddr, len: usize) {
+fn replay(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("failed to read {path}: {e}"))?;
+    let datagrams = capture::datagrams(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    let (mut count, mut errors) = (0usize, 0usize);
+    for datagram in datagrams {
+        // A truncated last record (recording interrupted mid-write) ends the replay.
+        let datagram = match datagram {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("{path}: {e}");
+                break;
+            }
+        };
+        let len = datagram.len();
+        match parse_packet(datagram) {
+            Ok(packet) => print_packet(&packet, format_args!("#{count}"), len),
+            Err(e) => {
+                errors += 1;
+                eprintln!("[#{count}] parse error ({len} bytes): {e}");
+            }
+        }
+        count += 1;
+    }
+    eprintln!("replayed {count} datagrams from {path}, {errors} parse errors");
+    Ok(())
+}
+
+fn print_packet(packet: &Packet, src: impl Display, len: usize) {
     let hdr = packet.header();
     let ver = packet.version();
     let kind = packet.kind();

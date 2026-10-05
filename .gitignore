@@ -1,1 +1,3 @@
 /target
+# Real game recordings: large, kept local (see README "Testing with the game")
+/tests/captures/

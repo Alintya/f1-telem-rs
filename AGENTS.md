@@ -35,10 +35,10 @@ src/lib.rs  ──► parse_packet(&[u8]) -> Result<Packet, ParseError>
 | Path | Purpose |
 |---|---|
 | `src/` | Library crate root and core modules |
-| `src/bin/listen.rs` | Example binary—binds UDP socket, parses & prints packets to stdout |
+| `src/bin/listen.rs` | Example binary—binds UDP socket, parses & prints packets to stdout; `--record FILE` saves a capture, `--replay FILE` prints one |
 | `spec/` | YAML packet specifications per game year (source of truth for codegen) |
 | `build.rs` | Build script: YAML → Rust codegen with compile-time size validation |
-| `tests/` | Integration tests for packet parsing |
+| `tests/` | Integration tests for packet parsing; `tests/captures/*.f1cap` (optional, git-ignored, local only) holds real game recordings replayed by `tests/captures.rs` |
 | `docs/` | Official EA/Codemasters specification documents (PDF, DOCX, TXT) |
 
 ## Development Commands
@@ -106,7 +106,8 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 | `src/header.rs` | `PacketHeader` struct, `parse_header()`, `HEADER_SIZE` constant (29) |
 | `src/error.rs` | `ParseError` enum |
 | `src/serde_support.rs` | Feature `serde` only: `array` helper used via `#[serde(with)]` by generated array fields |
-| `src/bin/listen.rs` | CLI binary: UDP recv → `parse_packet` → one `common::PacketVisitor` printer for all versions |
+| `src/bin/listen/capture.rs` | Capture file format (`F1TCAP01` signature, then `u16` LE length + bytes per datagram): `CaptureWriter`, zero-copy `datagrams()`. Tooling only, not library API: included with `#[path]` as `mod capture` by both `src/bin/listen.rs` and `tests/captures.rs` |
+| `src/bin/listen.rs` | CLI binary: UDP recv (optionally recorded) or capture replay → `parse_packet` → one `common::PacketVisitor` printer for all versions |
 | `build.rs` | Codegen: YAML specs → version modules, `common` view, `GameVersion`, `PacketKind`, `Packet` |
 | `spec/f1_2023.yaml` | Base spec (complete); `f1_2024.yaml`, `f1_2025.yaml` and `f1_2026.yaml` (2026 Season Pack) extend it as diffs |
 
@@ -122,11 +123,11 @@ Add `spec/f1_YYYY.yaml` with `extends:` the previous year and only the changed s
 ## Testing & QA
 
 ### Test Structure
-- **Unit tests:** Inline `#[cfg(test)] mod tests` in `src/header.rs`, `src/reader.rs`, and `src/fixed_str.rs`.
-- **Integration tests:** `tests/packet_parse.rs`—imports `f1_telem::*` and exercises the public `parse_packet` API. `tests/serde_roundtrip.rs` (compiled only with `--features serde`) checks the JSON shape and round-trips of parsed packets.
+- **Unit tests:** Inline `#[cfg(test)] mod tests` in `src/header.rs`, `src/reader.rs` and `src/fixed_str.rs`.
+- **Integration tests:** `tests/packet_parse.rs`—imports `f1_telem::*` and exercises the public `parse_packet` API. `tests/serde_roundtrip.rs` (compiled only with `--features serde`) checks the JSON shape and round-trips of parsed packets. `tests/captures.rs` tests the capture format and replays real recordings in `tests/captures/*.f1cap` (passes when there are none), failing on parse errors, datagrams longer than the declared size, and unknown event codes.
 
 ### Test Data
-Packet bytes are synthetically constructed in-memory. `tests/packet_parse.rs` uses its `PacketBuilder` helper (methods: `.header()`, `.u8()`, `.u16()`, `.u32()`, `.u64()`, `.i8()`, `.f32()`, `.string()`, `.zeros()`, `.pad_to()`); `tests/serde_roundtrip.rs` uses its own minimal `header()`/`padded()` helpers. No external fixture files.
+Packet bytes are synthetically constructed in-memory. `tests/packet_parse.rs` uses its `PacketBuilder` helper (methods: `.header()`, `.u8()`, `.u16()`, `.u32()`, `.u64()`, `.i8()`, `.f32()`, `.string()`, `.zeros()`, `.pad_to()`); `tests/serde_roundtrip.rs` uses its own minimal `header()`/`padded()` helpers. The only fixture files are optional local game recordings in `tests/captures/` (made with `f1-listen --record`, git-ignored).
 
 ### Naming Convention
 - Standard packets: `f1_YY_<packet_type>` (e.g., `f1_23_motion_packet`)
