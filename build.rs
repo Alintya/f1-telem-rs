@@ -1411,9 +1411,13 @@ fn unify(occ: &[Occurrence]) -> Option<CommonTy> {
                 return Some(CommonTy::Num(nums[0]));
             }
             if scaled || nums.iter().any(|n| matches!(n, Num::Float { .. })) {
+                // 64-bit integers do not fit losslessly in any float.
+                if nums.iter().any(|n| matches!(n, Num::Int { bits: 64, .. })) {
+                    return None;
+                }
                 let wide = nums
                     .iter()
-                    .any(|n| matches!(n, Num::Float { bits: 64 } | Num::Int { bits: 32.., .. }));
+                    .any(|n| matches!(n, Num::Float { bits: 64 } | Num::Int { bits: 32, .. }));
                 return Some(CommonTy::Num(Num::Float {
                     bits: if wide { 64 } else { 32 },
                 }));
@@ -1435,15 +1439,19 @@ struct CommonField {
     optional: bool,
 }
 
+/// Why the types of a field could not be reconciled across versions.
+const TYPES_DIFFER: &str = "their types differ across versions";
+
 /// Union of an owner's fields over the versions that define it, in first-seen order,
-/// plus the names of fields left out because `accept` rejects them or their types
-/// cannot be reconciled. Each omission is reported as a cargo warning.
+/// plus the fields left out (with the reason) because their types cannot be
+/// reconciled or `accept` rejects the unified type. Each omission is reported as a
+/// cargo warning.
 fn common_fields(
     specs: &[ResolvedSpec],
     owner: &str,
     defs: &[(usize, &[FieldDef])],
-    accept: impl Fn(&CommonTy) -> bool,
-) -> (Vec<CommonField>, Vec<String>) {
+    accept: impl Fn(&CommonTy) -> Result<(), &'static str>,
+) -> (Vec<CommonField>, Vec<(String, &'static str)>) {
     let mut merged: Vec<(String, Vec<Occurrence>)> = Vec::new();
     for (si, fields) in defs {
         let module = &specs[*si].version.module;
@@ -1458,34 +1466,47 @@ fn common_fields(
     let mut kept = Vec::new();
     let mut omitted = Vec::new();
     for (name, occ) in merged {
-        match unify(&occ).filter(&accept) {
-            Some(ty) => kept.push(CommonField {
+        match unify(&occ)
+            .ok_or(TYPES_DIFFER)
+            .and_then(|ty| accept(&ty).map(|()| ty))
+        {
+            Ok(ty) => kept.push(CommonField {
                 optional: occ.len() < defs.len(),
                 name,
                 ty,
                 occ,
             }),
-            None => {
+            Err(reason) => {
                 println!(
-                    "cargo::warning=common::{owner}.{name} omitted: its types differ across versions; use the version-specific types"
+                    "cargo::warning=common::{owner}.{name} omitted: {reason}; use the version-specific types"
                 );
-                omitted.push(name);
+                omitted.push((name, reason));
             }
         }
     }
     (kept, omitted)
 }
 
-/// Doc line listing fields only available on the version-specific types.
-fn omitted_doc(indent: &str, omitted: &[String]) -> String {
-    if omitted.is_empty() {
-        return String::new();
+/// Doc lines listing fields only available on the version-specific types, grouped by reason.
+fn omitted_doc(indent: &str, omitted: &[(String, &'static str)]) -> String {
+    let mut reasons: Vec<&str> = omitted.iter().map(|o| o.1).collect();
+    reasons.sort_unstable();
+    reasons.dedup();
+    let mut doc = String::new();
+    for reason in reasons {
+        let names: Vec<String> = omitted
+            .iter()
+            .filter(|o| o.1 == reason)
+            .map(|o| format!("`{}`", o.0))
+            .collect();
+        write!(
+            doc,
+            "{indent}///\n{indent}/// Not exposed here because {reason} (use the version-specific\n{indent}/// types): {}.\n",
+            names.join(", ")
+        )
+        .unwrap();
     }
-    let names: Vec<String> = omitted.iter().map(|n| format!("`{n}`")).collect();
-    format!(
-        "{indent}///\n{indent}/// Not exposed here because their types differ across versions (use the\n{indent}/// version-specific types): {}.\n",
-        names.join(", ")
-    )
+    doc
 }
 
 fn version_label(v: &VersionInfo) -> String {
@@ -1524,7 +1545,7 @@ fn emit_common_trait(
     defs: &[(usize, &[FieldDef])],
     packet: bool,
 ) {
-    let (fields, omitted) = common_fields(specs, owner, defs, |_| true);
+    let (fields, omitted) = common_fields(specs, owner, defs, |_| Ok(()));
     let assoc: BTreeSet<&str> = fields
         .iter()
         .filter_map(|f| match &f.ty {
@@ -1548,7 +1569,7 @@ fn emit_common_trait(
     )
     .unwrap();
     out.push_str(&omitted_doc("    ", &omitted));
-    writeln!(out, "    pub trait {concrete} {{").unwrap();
+    writeln!(out, "    pub trait {concrete}: sealed::Sealed {{").unwrap();
     for a in &assoc {
         writeln!(out, "        type {a}: {a};").unwrap();
     }
@@ -1579,6 +1600,11 @@ fn emit_common_trait(
     for (si, _) in defs {
         let spec = &specs[*si];
         let m = &spec.version.module;
+        writeln!(
+            out,
+            "    impl sealed::Sealed for super::{m}::{concrete} {{}}"
+        )
+        .unwrap();
         writeln!(out, "    impl {concrete} for super::{m}::{concrete} {{").unwrap();
         for a in &assoc {
             let target = if spec.structs.iter().any(|s| s.name == *a) {
@@ -1678,12 +1704,16 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
         return;
     };
     // Only scalar event fields are representable in a `Copy` enum shared across versions.
-    let (fields, omitted): (Vec<Vec<CommonField>>, Vec<Vec<String>>) = evs
+    #[allow(clippy::type_complexity)]
+    let (fields, omitted): (Vec<Vec<CommonField>>, Vec<Vec<(String, &'static str)>>) = evs
         .iter()
         .map(|ev| {
             let defs: Vec<(usize, &[FieldDef])> =
                 ev.defs.iter().map(|(si, e)| (*si, &e.fields[..])).collect();
-            common_fields(specs, &ev.name, &defs, |ty| matches!(ty, CommonTy::Num(_)))
+            common_fields(specs, &ev.name, &defs, |ty| match ty {
+                CommonTy::Num(_) => Ok(()),
+                _ => Err("only scalar fields fit the shared `Copy` event enum"),
+            })
         })
         .unzip();
 
@@ -1709,6 +1739,7 @@ fn emit_common_events(out: &mut String, specs: &[ResolvedSpec]) {
             writeln!(out, "        {},", ev.name).unwrap();
             continue;
         }
+        writeln!(out, "        #[non_exhaustive]").unwrap();
         writeln!(out, "        {} {{", ev.name).unwrap();
         for f in fs {
             if f.optional {
@@ -1844,6 +1875,22 @@ fn emit_common(out: &mut String, specs: &[ResolvedSpec]) {
     )
     .unwrap();
     writeln!(out, "    pub enum Absent {{}}\n").unwrap();
+    writeln!(
+        out,
+        "    /// Seals the cross-version traits: only this crate's types implement them, so"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    /// future versions can add accessors without breaking downstream code."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    mod sealed {{\n        pub trait Sealed {{}}\n    }}"
+    )
+    .unwrap();
+    writeln!(out, "    impl sealed::Sealed for Absent {{}}\n").unwrap();
 
     // Structs, in first-seen order.
     let mut struct_defs: Vec<(String, VersionFields)> = Vec::new();
@@ -1883,7 +1930,7 @@ fn emit_common(out: &mut String, specs: &[ResolvedSpec]) {
             present_in(specs, defs.iter().map(|d| d.0))
         )
         .unwrap();
-        writeln!(out, "    pub trait {concrete} {{").unwrap();
+        writeln!(out, "    pub trait {concrete}: sealed::Sealed {{").unwrap();
         writeln!(out, "        /// The packet header.").unwrap();
         writeln!(out, "        fn header(&self) -> &PacketHeader;").unwrap();
         writeln!(out, "        /// The raw 4-byte event code.").unwrap();
@@ -1897,6 +1944,11 @@ fn emit_common(out: &mut String, specs: &[ResolvedSpec]) {
         writeln!(out, "    }}\n").unwrap();
         for (si, _) in defs {
             let m = &specs[*si].version.module;
+            writeln!(
+                out,
+                "    impl sealed::Sealed for super::{m}::{concrete} {{}}"
+            )
+            .unwrap();
             writeln!(out, "    impl {concrete} for super::{m}::{concrete} {{").unwrap();
             writeln!(
                 out,

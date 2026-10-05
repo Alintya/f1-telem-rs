@@ -55,6 +55,23 @@ fn participants_names_serialize_as_strings_and_round_trip() {
 }
 
 #[test]
+fn invalid_utf8_names_round_trip_lossily() {
+    // Invalid bytes become U+FFFD (3 bytes), which then no longer fits and is truncated
+    // at a character boundary: the round trip is not the identity.
+    let name = FixedStr::<4>::from_bytes(*b"\xffabc");
+    let json = serde_json::to_value(name).unwrap();
+    assert_eq!(json, "\u{FFFD}abc");
+    let back: FixedStr<4> = serde_json::from_value(json).unwrap();
+    assert_eq!(back.as_bytes(), "\u{FFFD}a".as_bytes());
+    assert_ne!(back, name);
+
+    // A name the game cut mid-character loses the partial character.
+    let cut = FixedStr::<4>::from_bytes(*b"ab\xe2\x82");
+    let back: FixedStr<4> = serde_json::from_value(serde_json::to_value(cut).unwrap()).unwrap();
+    assert_eq!(back, "ab");
+}
+
+#[test]
 fn large_arrays_round_trip() {
     // 2026 LapPositions: 50 laps x 24 cars = 1200 positions.
     let mut lap_positions = padded(header(2026, 26, 15), 1231);

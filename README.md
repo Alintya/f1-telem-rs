@@ -29,7 +29,7 @@ impl PacketVisitor for Dashboard {
     }
 
     fn event<P: PacketEvent>(&mut self, packet: &P) {
-        if let EventDetails::Collision { vehicle1_idx, vehicle2_idx, severity } = packet.event_details() {
+        if let EventDetails::Collision { vehicle1_idx, vehicle2_idx, severity, .. } = packet.event_details() {
             println!("collision {vehicle1_idx} <-> {vehicle2_idx} (severity {severity:?})");
         }
     }
@@ -43,7 +43,7 @@ match parse_packet(data) {
 }
 ```
 
-Each struct and packet has a trait of the same name in `common`, implemented by every version. Accessors return a type that fits all versions: narrower integers are widened (`team_id()` is `u16`), quantised values are scaled (`g_force_lateral()` is `f32` in g even where the game sends `i16`), arrays whose length differs are slices (22 vs 24 cars), names are `Cow<str>`, and fields a version lacks return `Option` (`None` for that version). `common::EventDetails` is the union of all versions' events. New versions and packet kinds never break a `PacketVisitor`.
+Each struct and packet has a trait of the same name in `common`, implemented by every version. Accessors return a type that fits all versions: narrower integers are widened (`team_id()` is `u16`), quantised values are scaled (`g_force_lateral()` is `f32` in g even where the game sends `i16`), arrays whose length differs are slices (22 vs 24 cars), names are `Cow<str>`, and fields a version lacks return `Option` (`None` for that version). `common::EventDetails` is the union of all versions' events; its variants are `#[non_exhaustive]`, so match them with `..` (only this crate, or `Deserialize` with the `serde` feature, can construct them). The traits are sealed (only this crate implements them), so new versions can add accessors and event fields without breaking your code, and new versions and packet kinds never break a `PacketVisitor`.
 
 For exact wire values, match on the version-specific types instead:
 

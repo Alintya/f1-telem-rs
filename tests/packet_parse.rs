@@ -965,6 +965,111 @@ fn f1_26_participants_with_u16_ids() {
 }
 
 #[test]
+fn f1_26_lobby_info_with_u16_team_id() {
+    let player = |b: PacketBuilder, ai: u8, team: u16, name: &str, ready: u8| {
+        b.u8(ai)
+            .u16(team)
+            .u8(10) // nationality
+            .u8(1) // platform
+            .string(name, 32)
+            .u8(44) // car_number
+            .u8(1) // your_telemetry
+            .u8(1) // show_online_names
+            .u16(1200) // tech_level
+            .u8(ready)
+    };
+    let b = PacketBuilder::new().header(2026, 26, 9).u8(24); // num_players
+    let b = player(b, 0, 489, "Lewis", 1);
+    let data = player(b, 1, 65535, "Max", 2).pad_to(1062).build();
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::LobbyInfo(l)) = &packet {
+        assert_eq!(l.num_players, 24);
+        assert_eq!(l.lobby_players.len(), 24);
+        let (a, b) = (&l.lobby_players[0], &l.lobby_players[1]);
+        assert_eq!(a.team_id, 489);
+        assert_eq!(a.name, "Lewis");
+        assert_eq!(a.car_number, 44);
+        assert_eq!(a.tech_level, 1200);
+        assert_eq!(a.ready_status, 1);
+        // 43-byte stride: the second player starts right after the first.
+        assert_eq!(b.ai_controlled, 1);
+        assert_eq!(b.team_id, 65535);
+        assert_eq!(b.name, "Max");
+        assert_eq!(b.ready_status, 2);
+    } else {
+        panic!("Expected F1_26 LobbyInfo packet");
+    }
+}
+
+#[test]
+fn f1_26_time_trial_with_u16_team_id() {
+    let set = |b: PacketBuilder, car: u8, team: u16, lap_ms: u32, valid: u8| {
+        b.u8(car)
+            .u16(team)
+            .u32(lap_ms)
+            .u32(30_000)
+            .u32(31_000)
+            .u32(lap_ms - 61_000)
+            .u8(1) // traction_control
+            .u8(2) // gearbox_assist
+            .u8(0) // anti_lock_brakes
+            .u8(1) // equal_car_performance
+            .u8(0) // custom_setup
+            .u8(valid)
+    };
+    let b = PacketBuilder::new().header(2026, 26, 14);
+    let b = set(b, 0, 300, 90_000, 1);
+    let b = set(b, 0, 300, 89_500, 1);
+    let data = set(b, 5, 65535, 88_000, 0).build();
+    assert_eq!(data.len(), 104);
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::TimeTrial(t)) = &packet {
+        let s = &t.player_session_best_data_set;
+        assert_eq!(s.team_id, 300);
+        assert_eq!(s.lap_time_in_ms, 90_000);
+        assert_eq!(s.sector3_time_in_ms, 29_000);
+        assert_eq!(s.gearbox_assist, 2);
+        assert_eq!(t.personal_best_data_set.lap_time_in_ms, 89_500);
+        let r = &t.rival_data_set;
+        assert_eq!(r.car_idx, 5);
+        assert_eq!(r.team_id, 65535);
+        assert_eq!(r.lap_time_in_ms, 88_000);
+        assert_eq!(r.equal_car_performance, 1);
+        assert_eq!(r.valid, 0);
+    } else {
+        panic!("Expected F1_26 TimeTrial packet");
+    }
+}
+
+#[test]
+fn f1_26_lap_positions_with_24_car_stride() {
+    let mut positions = [0u8; 50 * 24];
+    positions[24 + 23] = 7; // lap 2, car 23
+    positions[49 * 24 + 23] = 24; // lap 50, car 23 (last byte)
+    let mut b = PacketBuilder::new()
+        .header(2026, 26, 15)
+        .u8(2) // num_laps
+        .u8(0); // lap_start
+    for p in positions {
+        b = b.u8(p);
+    }
+    let data = b.build();
+    assert_eq!(data.len(), 1231);
+
+    let packet = parse_packet(&data).unwrap();
+    if let Packet::F1_26(v2026::Packet::LapPositions(lp)) = &packet {
+        assert_eq!(lp.num_laps, 2);
+        assert_eq!(lp.position_for_vehicle_idx.len(), 1200);
+        assert_eq!(lp.position_for_vehicle_idx[24 + 23], 7);
+        assert_eq!(lp.position_for_vehicle_idx[1199], 24);
+    } else {
+        panic!("Expected F1_26 LapPositions packet");
+    }
+}
+
+#[test]
 fn f1_26_car_telemetry_with_u8_engine_temperature() {
     let data = PacketBuilder::new()
         .header(2026, 26, 6)
@@ -1330,30 +1435,40 @@ fn common_event_details_fill_missing_fields_with_none() {
         record(&b.pad_to(45).build()).event.unwrap()
     };
 
-    assert_eq!(
+    assert!(matches!(
         event(2023, 23, "DRSD", &[]),
-        common::EventDetails::DrsDisabled { reason: None }
-    );
-    assert_eq!(
+        common::EventDetails::DrsDisabled { reason: None, .. }
+    ));
+    assert!(matches!(
         event(2025, 25, "DRSD", &[1]),
-        common::EventDetails::DrsDisabled { reason: Some(1) }
-    );
-    assert_eq!(
+        common::EventDetails::DrsDisabled {
+            reason: Some(1),
+            ..
+        }
+    ));
+    assert!(matches!(
         event(2024, 24, "COLL", &[3, 4, 2]),
         common::EventDetails::Collision {
             vehicle1_idx: 3,
             vehicle2_idx: 4,
             severity: None,
+            ..
         }
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         event(2026, 26, "COLL", &[3, 4, 2]),
         common::EventDetails::Collision {
             vehicle1_idx: 3,
             vehicle2_idx: 4,
             severity: Some(2),
+            ..
         }
-    );
+    ));
+    // A 2026-only event converts with every field.
+    assert!(matches!(
+        event(2026, 26, "PMEN", &[1]),
+        common::EventDetails::PartialModeEnabled { reason: 1, .. }
+    ));
     // Codes a version does not know stay Unknown, even if a later version defines them.
     assert!(matches!(
         event(2025, 25, "PMEN", &[1]),

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{self, Debug, Display};
 use std::net::UdpSocket;
 
 use f1_telem::common::*;
@@ -43,9 +43,38 @@ fn print_packet(packet: &Packet, src: std::net::SocketAddr, len: usize) {
     packet.visit(&mut Printer);
 }
 
-/// ` name=value` for fields only some game versions send; empty otherwise.
-fn opt(name: &str, value: Option<impl Display>) -> String {
-    value.map_or_else(String::new, |v| format!(" {name}={v}"))
+/// ` name=value` for fields only some game versions send; nothing otherwise.
+struct Opt<'a, T>(&'a str, Option<T>);
+
+impl<T: Display> Display for Opt<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.1 {
+            Some(v) => write!(f, " {}={v}", self.0),
+            None => Ok(()),
+        }
+    }
+}
+
+fn opt<T: Display>(name: &str, value: Option<T>) -> Opt<'_, T> {
+    Opt(name, value)
+}
+
+/// A float with fixed precision followed by a unit.
+struct Fixed(f32, usize, &'static str);
+
+impl Display for Fixed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.prec$}{}", self.0, self.2, prec = self.1)
+    }
+}
+
+/// Displays a value with its `Debug` representation.
+struct Dbg<T>(T);
+
+impl<T: Debug> Display for Dbg<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
 }
 
 fn secs(ms: u32) -> f64 {
@@ -60,9 +89,13 @@ fn sector_secs(ms: Option<u16>, minutes: Option<u8>) -> f64 {
 }
 
 /// `[a,b,c,d]` with fixed precision, for per-wheel values.
-fn wheels(values: &[f32; 4], precision: usize) -> String {
-    let parts: Vec<String> = values.iter().map(|v| format!("{v:.precision$}")).collect();
-    format!("[{}]", parts.join(","))
+struct Wheels<'a>(&'a [f32; 4], usize);
+
+impl Display for Wheels<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [a, b, c, d] = self.0;
+        write!(f, "[{a:.p$},{b:.p$},{c:.p$},{d:.p$}]", p = self.1)
+    }
 }
 
 /// Prints every packet kind through the version-independent `common` traits,
@@ -104,7 +137,7 @@ impl PacketVisitor for Printer {
             opt("weekend_sessions", p.num_sessions_in_weekend()),
             opt(
                 "start_reaction",
-                p.start_reaction_time().map(|t| format!("{t:.3}s"))
+                p.start_reaction_time().map(|t| Fixed(t, 3, "s"))
             ),
         );
         if let (Some(full), Some(zones)) =
@@ -137,7 +170,7 @@ impl PacketVisitor for Printer {
                 l.result_status(),
                 opt(
                     "speed_trap",
-                    l.speed_trap_fastest_speed().map(|s| format!("{s:.1}kph"))
+                    l.speed_trap_fastest_speed().map(|s| Fixed(s, 1, "kph"))
                 ),
             );
         }
@@ -151,13 +184,13 @@ impl PacketVisitor for Printer {
                 " Unknown code={:?} payload={payload:02x?}",
                 std::str::from_utf8(&code).unwrap_or("????")
             ),
-            EventDetails::FastestLap { vehicle_idx, lap_time } => {
+            EventDetails::FastestLap { vehicle_idx, lap_time, .. } => {
                 println!(" FastestLap car={vehicle_idx} {lap_time:.3}s");
             }
-            EventDetails::Retirement { vehicle_idx, reason } => {
+            EventDetails::Retirement { vehicle_idx, reason, .. } => {
                 println!(" Retirement car={vehicle_idx}{}", opt("reason", reason));
             }
-            EventDetails::DrsDisabled { reason } => println!(" DrsDisabled{}", opt("reason", reason)),
+            EventDetails::DrsDisabled { reason, .. } => println!(" DrsDisabled{}", opt("reason", reason)),
             EventDetails::Penalty {
                 penalty_type,
                 infringement_type,
@@ -166,27 +199,30 @@ impl PacketVisitor for Printer {
                 time,
                 lap_num,
                 places_gained,
+                ..
             } => println!(
                 " Penalty car={vehicle_idx} other={other_vehicle_idx} type={penalty_type} infr={infringement_type} time={time}s lap={lap_num} places={places_gained}"
             ),
             EventDetails::SpeedTrap { vehicle_idx, speed, .. } => {
                 println!(" SpeedTrap car={vehicle_idx} {speed:.1}kph");
             }
-            EventDetails::StopGoServed { vehicle_idx, stop_time } => {
+            EventDetails::StopGoServed { vehicle_idx, stop_time, .. } => {
                 println!(" StopGoServed car={vehicle_idx}{}", opt("stop_time", stop_time));
             }
             EventDetails::Flashback { flashback_frame_identifier, .. } => {
                 println!(" Flashback frame={flashback_frame_identifier}");
             }
-            EventDetails::ButtonStatus { button_status } => println!(" Buttons 0x{button_status:08x}"),
+            EventDetails::ButtonStatus { button_status, .. } => println!(" Buttons 0x{button_status:08x}"),
             EventDetails::Overtake {
                 overtaking_vehicle_idx,
                 being_overtaken_vehicle_idx,
+                ..
             } => println!(" Overtake {overtaking_vehicle_idx} passes {being_overtaken_vehicle_idx}"),
             EventDetails::Collision {
                 vehicle1_idx,
                 vehicle2_idx,
                 severity,
+                ..
             } => println!(" Collision {vehicle1_idx} <-> {vehicle2_idx}{}", opt("severity", severity)),
             // Remaining events print their name and fields as-is.
             other => println!(" {other:?}"),
@@ -279,7 +315,7 @@ impl PacketVisitor for Printer {
                 s.ers_deploy_mode(),
                 opt(
                     "harvest_limit",
-                    s.ers_harvest_limit_per_lap().map(|j| format!("{j:.0}J"))
+                    s.ers_harvest_limit_per_lap().map(|j| Fixed(j, 0, "J"))
                 ),
             );
         }
@@ -342,7 +378,7 @@ impl PacketVisitor for Printer {
                 c.rear_wing_damage(),
                 c.floor_damage(),
                 c.engine_damage(),
-                opt("blisters", c.tyre_blisters().map(|b| format!("{b:?}"))),
+                opt("blisters", c.tyre_blisters().map(Dbg)),
             );
         }
     }
@@ -409,8 +445,8 @@ impl PacketVisitor for Printer {
             p.angular_velocity_y(),
             p.angular_velocity_z(),
             p.front_wheels_angle(),
-            opt("chassis_yaw", p.chassis_yaw().map(|v| format!("{v:.3}"))),
-            opt("chassis_pitch", p.chassis_pitch().map(|v| format!("{v:.3}"))),
+            opt("chassis_yaw", p.chassis_yaw().map(|v| Fixed(v, 3, ""))),
+            opt("chassis_pitch", p.chassis_pitch().map(|v| Fixed(v, 3, ""))),
         );
         if let (Some(fa), Some(ra), Some(fr), Some(rr)) = (
             p.front_aero_height(),
@@ -421,7 +457,7 @@ impl PacketVisitor for Printer {
             println!("  aero_h={fa:.3}/{ra:.3} roll={fr:.3}/{rr:.3}");
         }
         if let (Some(camber), Some(gain)) = (p.wheel_camber(), p.wheel_camber_gain()) {
-            println!("  camber={} gain={}", wheels(camber, 3), wheels(gain, 3));
+            println!("  camber={} gain={}", Wheels(camber, 3), Wheels(gain, 3));
         }
     }
 

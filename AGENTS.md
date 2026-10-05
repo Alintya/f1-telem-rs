@@ -77,7 +77,7 @@ All primitives, `FixedStr<N>`, `PacketHeader` and every generated struct impleme
 - `build.rs` loads every `spec/*.yaml`, resolves `extends` chains, sorts versions by `packet_format`, validates (packet sizes = header 29 + body, event payloads fit, no duplicate names/ids/codes, unknown YAML keys rejected), then emits one module per version plus the crate-level `GameVersion`, `PacketKind` and `Packet`.
 - Generated code lives in `$OUT_DIR/generated.rs`, pulled in via `include!` in `src/generated.rs`.
 - `cargo::rerun-if-changed` is set for `build.rs`, the `spec/` directory, and each spec file.
-- All generated and public enums are `#[non_exhaustive]`.
+- All generated and public enums are `#[non_exhaustive]`, as are the field-bearing variants of `common::EventDetails`. The `common` struct/packet traits are sealed (`common::sealed::Sealed`, private); `PacketVisitor` stays open.
 
 ### YAML Spec Schema
 Each `spec/f1_YYYY.yaml` declares:
